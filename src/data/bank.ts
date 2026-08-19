@@ -19,20 +19,6 @@ export type BankAccount = {
   proofFileName?: string;
 };
 
-/** The account Figma prints on the screen (nodes 110:6616 – 110:6638). */
-export const SEED_BANK_ACCOUNTS: ReadonlyArray<BankAccount> = [
-  {
-    id: 'pnb-6876',
-    holderName: 'Saurabh Sani',
-    bankName: 'Punjab National Bank',
-    accountNumber: '8436 5863 4785 6876',
-    ifsc: 'PNB32423IB',
-    createdDate: 'September 25, 2024',
-    status: 'Pending',
-    proofFileName: 'cancelled-cheque.png',
-  },
-];
-
 /** One row of the banking-information list. */
 export type BankRow = {
   label: string;
@@ -117,10 +103,7 @@ export function validateBankAccount(draft: BankAccountDraft): string | null {
   return null;
 }
 
-/**
- * A payout settled against an account. Figma designs no ledger, so the sheet
- * behind "View Trangection" prints these.
- */
+/** One row of the payout ledger (Figma node 110:6900). */
 export type BankTransaction = {
   id: string;
   reference: string;
@@ -128,20 +111,3 @@ export type BankTransaction = {
   amount: string;
   status: string;
 };
-
-export const SEED_TRANSACTIONS: ReadonlyArray<BankTransaction> = [
-  {
-    id: 'txn-1',
-    reference: 'Payout · September 2024',
-    date: 'September 30, 2024',
-    amount: '₹18,520',
-    status: 'Settled',
-  },
-  {
-    id: 'txn-2',
-    reference: 'Payout · August 2024',
-    date: 'August 31, 2024',
-    amount: '₹14,180',
-    status: 'Settled',
-  },
-];

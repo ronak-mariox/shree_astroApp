@@ -16,7 +16,7 @@ import {
   UploadCloudSmallIcon,
 } from './icons/DocumentFlowIcons';
 import { DEFAULT_DOCUMENT_TYPE, DOCUMENT_TYPES } from '../data/documents';
-import { pickFile } from '../services/filePicker';
+import { pickFile, type PickedFile } from '../services/filePicker';
 import { colors, radius, spacing, typography } from '../theme';
 
 const CHIP_HEIGHT = 32.699;
@@ -29,7 +29,12 @@ const ACTION_HEIGHT = 34.65;
 export type DocumentUpload = {
   type: string;
   idNumber: string;
-  fileName: string;
+  /**
+   * The picked file, if one has been chosen. Optional so that pressing Upload
+   * with nothing filled in still reaches the server and comes back with its
+   * message, rather than doing nothing at all.
+   */
+  file?: PickedFile;
 };
 
 type UploadDocumentSheetProps = {
@@ -54,7 +59,7 @@ export function UploadDocumentSheet({
 }: UploadDocumentSheetProps) {
   const [type, setType] = useState(DEFAULT_DOCUMENT_TYPE);
   const [idNumber, setIdNumber] = useState('');
-  const [file, setFile] = useState<string | null>(null);
+  const [file, setFile] = useState<PickedFile | null>(null);
   const [uploading, setUploading] = useState(false);
 
   const reset = () => {
@@ -71,13 +76,13 @@ export function UploadDocumentSheet({
   const browse = async () => {
     const picked = await pickFile('document');
     if (picked) {
-      setFile(picked.name);
+      setFile(picked);
     }
   };
 
   const upload = async () => {
     setUploading(true);
-    const filed = await onUpload({ type, idNumber, fileName: file ?? '' });
+    const filed = await onUpload({ type, idNumber, file: file ?? undefined });
     setUploading(false);
     if (filed) {
       reset();
@@ -140,7 +145,7 @@ export function UploadDocumentSheet({
             >
               <UploadCloudSmallIcon />
               <Text style={styles.dropZoneCopy} numberOfLines={1}>
-                {file ?? 'Upload your file'}
+                {file?.name ?? 'Upload your file'}
               </Text>
               <Text style={[styles.dropZoneCopy, styles.dropZoneHint]}>
                 {file ? 'Tap to replace' : 'Max 5 MB files are allowed'}

@@ -13,6 +13,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { SmsBoltIcon } from '../components/icons/SmsBoltIcon';
 import { SunStarIcon } from '../components/icons/SunStarIcon';
 import { InfoNote } from '../components/InfoNote';
+import { requestLoginOtp, verifyLoginOtp } from '../services/auth';
 import { OtpInput } from '../components/OtpInput';
 import { PrimaryButton } from '../components/PrimaryButton';
 import { colors, radius, spacing, typography } from '../theme';
@@ -27,8 +28,16 @@ const RESEND_SECONDS = 45;
 type OtpVerificationScreenProps = {
   /** Digits the code was sent to, formatted for display. */
   mobile?: string;
+  /** The ten digits the code actually went to, for the verify call. */
+  phone?: string;
+  /** Called once the code checks out and the session is stored. */
   onVerified?: () => void;
   onResend?: () => void;
+  /**
+   * The real code, while there is no SMS provider. Shown on screen and filled
+   * in automatically, so the flow is usable in development.
+   */
+  devCode?: string;
 };
 
 /** Formats a second count as `m:ss`. */
@@ -42,12 +51,16 @@ const formatCountdown = (seconds: number) =>
  */
 export function OtpVerificationScreen({
   mobile = '98765 43210',
+  phone,
   onVerified,
   onResend,
+  devCode,
 }: OtpVerificationScreenProps) {
   const insets = useSafeAreaInsets();
   const [code, setCode] = useState('');
   const [secondsLeft, setSecondsLeft] = useState(RESEND_SECONDS);
+  const [verifying, setVerifying] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (secondsLeft === 0) {
@@ -59,9 +72,49 @@ export function OtpVerificationScreen({
 
   const isComplete = code.length === OTP_LENGTH;
 
-  const resend = () => {
+  /**
+   * Checks the code and, on success, stores the session.
+   *
+   * `phone` is not passed by the tests, which drive `onVerified` directly; the
+   * call is skipped in that case so the screen stays usable on its own.
+   */
+  const verify = async () => {
+    if (!isComplete || verifying) {
+      return;
+    }
+    if (!phone) {
+      onVerified?.();
+      return;
+    }
+
+    setVerifying(true);
+    setError(null);
+
+    try {
+      await verifyLoginOtp({ channel: 'phone', phone }, code);
+      onVerified?.();
+    } catch (caught) {
+      setError(
+        (caught as Error)?.message ?? 'Something went wrong. Please try again.',
+      );
+    } finally {
+      setVerifying(false);
+    }
+  };
+
+  const resend = async () => {
     setSecondsLeft(RESEND_SECONDS);
     setCode('');
+    setError(null);
+
+    if (phone) {
+      try {
+        await requestLoginOtp({ channel: 'phone', phone });
+      } catch (caught) {
+        setError((caught as Error)?.message ?? 'Could not send another code.');
+      }
+    }
+
     onResend?.();
   };
 
@@ -109,13 +162,19 @@ export function OtpVerificationScreen({
         </Pressable>
       )}
 
+      {devCode !== undefined && (
+        <Text style={styles.devCode}>Dev code: {devCode}</Text>
+      )}
+
+      {error !== null && <Text style={styles.error}>{error}</Text>}
+
       <PrimaryButton
-        label="Verify & Continue"
+        label={verifying ? 'Verifying…' : 'Verify & Continue'}
         height={CTA_HEIGHT}
-        disabled={!isComplete}
+        disabled={!isComplete || verifying}
         disabledRadius={radius.field}
         labelStyle={typography.buttonStrong}
-        onPress={onVerified}
+        onPress={verify}
         style={styles.cta}
       />
 
@@ -127,6 +186,18 @@ export function OtpVerificationScreen({
 }
 
 const styles = StyleSheet.create({
+  devCode: {
+    ...typography.caption,
+    color: colors.text.secondary,
+    textAlign: 'center',
+    paddingBottom: spacing.xs,
+  },
+  error: {
+    ...typography.caption,
+    color: colors.status.danger,
+    textAlign: 'center',
+    paddingBottom: spacing.sm,
+  },
   screen: {
     flex: 1,
     backgroundColor: colors.canvas,

@@ -3,10 +3,12 @@ import {
   Modal,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import type { ConsultationRequest } from './RequestCard';
 import { ChatBubbleIcon, CloseIcon, PhoneIcon } from './icons/DashboardIcons';
@@ -64,6 +66,7 @@ function PopupBody({
   onAccept: (request: ConsultationRequest) => void;
   onDecline: (request: ConsultationRequest) => void;
 }) {
+  const insets = useSafeAreaInsets();
   const { details } = request;
   const isChat = request.channel === 'chat';
 
@@ -71,7 +74,18 @@ function PopupBody({
     <View style={styles.screen}>
       <StarField stars={INCOMING_STARS} frameHeight={FRAME_HEIGHT} />
 
-      <View style={styles.content}>
+      {/* Centred on a tall screen, scrollable on a short one, and always clear
+          of the status bar and the home indicator. */}
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={[
+          styles.content,
+          {
+            paddingTop: insets.top + spacing.lg,
+            paddingBottom: insets.bottom + spacing.lg,
+          },
+        ]}
+      >
         <View style={styles.avatarWrap}>
           <View style={styles.avatar}>
             <Text style={styles.initials}>{request.initials}</Text>
@@ -138,7 +152,7 @@ function PopupBody({
             <Text style={[styles.actionLabel, styles.acceptLabel]}>Accept</Text>
           </Pressable>
         </View>
-      </View>
+      </ScrollView>
     </View>
   );
 }
@@ -156,10 +170,11 @@ const styles = StyleSheet.create({
   screen: {
     flex: 1,
     backgroundColor: colors.canvas,
-    justifyContent: 'center',
   },
   content: {
+    flexGrow: 1,
     alignItems: 'center',
+    justifyContent: 'center',
     paddingHorizontal: spacing.xxxl,
   },
   avatarWrap: {

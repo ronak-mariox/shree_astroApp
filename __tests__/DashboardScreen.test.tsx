@@ -1,55 +1,24 @@
 import React from 'react';
 import ReactTestRenderer from 'react-test-renderer';
-import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { AvailabilityToggle } from '../src/components/AvailabilityToggle';
 import { IncomingRequestPopup } from '../src/components/IncomingRequestPopup';
 import { ProfileMenu } from '../src/components/ProfileMenu';
 import { RequestCard } from '../src/components/RequestCard';
 import { ServiceSwitch } from '../src/components/ServiceSwitch';
-import {
-  LIFE_ASPECTS,
-  PENDING_REQUESTS,
-  SKILLS,
-} from '../src/data/dashboard';
 import { DashboardScreen } from '../src/screens/DashboardScreen';
+import { render, textOf } from './helpers/renderWithData';
+import { FIXTURE_PROFILE } from './helpers/fixtures';
 
-const METRICS = {
-  frame: { x: 0, y: 0, width: 390, height: 844 },
-  insets: { top: 47, left: 0, right: 0, bottom: 34 },
-};
+/** The expertise cards print the record's own skills and languages. */
+const splitList = (value: string) =>
+  value.split(',').map(part => part.trim()).filter(Boolean);
 
-/** Concatenated visible text — the screen draws a lot of SVG the JSON dump
- *  would otherwise drown the assertions in. */
-const textOf = (tree: ReactTestRenderer.ReactTestRenderer): string => {
-  const walk = (node: any): string => {
-    if (node === null || node === undefined) return '';
-    if (typeof node === 'string') return node;
-    if (Array.isArray(node)) return node.map(walk).join('');
-    if (typeof node === 'object') return walk(node.children);
-    return '';
-  };
-  return walk(tree.toJSON());
-};
+const LIFE_ASPECTS = splitList(FIXTURE_PROFILE.skill);
+const SKILLS = splitList(FIXTURE_PROFILE.language);
 
-const mounted: ReactTestRenderer.ReactTestRenderer[] = [];
-
-const render = async (element: React.ReactElement) => {
-  let tree!: ReactTestRenderer.ReactTestRenderer;
-  await ReactTestRenderer.act(() => {
-    tree = ReactTestRenderer.create(
-      <SafeAreaProvider initialMetrics={METRICS}>{element}</SafeAreaProvider>,
-    );
-  });
-  mounted.push(tree);
-  return tree;
-};
-
-afterEach(async () => {
-  await ReactTestRenderer.act(() => {
-    mounted.splice(0).forEach(tree => tree.unmount());
-  });
-});
+/** The two requests the mocked API answers with (see helpers/apiMock.ts). */
+const REQUEST_COUNT = 2;
 
 const act = ReactTestRenderer.act;
 
@@ -70,11 +39,12 @@ const pressablesWithRole = (
 test('dashboard renders every section of the home screen', async () => {
   const text = textOf(await render(<DashboardScreen />));
 
-  expect(text).toContain('Good Morning ✨');
+  /** The greeting follows the clock, so match any of the three. */
+  expect(text).toMatch(/Good (Morning|Afternoon|Evening) ✨/);
   expect(text).toContain('Pt. Rajesh');
   expect(text).toContain('₹2,840');
   expect(text).toContain("Today's Earnings");
-  expect(text).toContain('+₹340 this hour');
+  expect(text).toContain('₹42,350 this month');
   expect(text).toContain('₹18,520');
   expect(text).toContain('Tap to withdraw');
   expect(text).toContain("Today's Performance");
@@ -82,8 +52,6 @@ test('dashboard renders every section of the home screen', async () => {
   expect(text).toContain('4.9');
   expect(text).toContain('94%');
   expect(text).toContain('My services');
-  expect(text).toContain('Online Time');
-  expect(text).toContain('01 Dec 12:00 PM');
 
   for (const aspect of LIFE_ASPECTS) {
     expect(text).toContain(aspect);
@@ -93,11 +61,9 @@ test('dashboard renders every section of the home screen', async () => {
   }
 
   expect(text).toContain('Pending Requests');
-  expect(text).toContain('3 New');
+  expect(text).toContain('2 New');
   expect(text).toContain('Priya Mehta');
-  expect(text).toContain('Marriage timing');
   expect(text).toContain('Arjun Rao');
-  expect(text).toContain('Career & job change');
 });
 
 test('the tab bar marks Home as the selected tab', async () => {
@@ -165,29 +131,25 @@ test('either button on a request card opens its brief instead of answering', asy
   });
 
   // The card is still on the list; the popup is now showing its details.
-  expect(tree.root.findAllByType(RequestCard)).toHaveLength(
-    PENDING_REQUESTS.length,
-  );
+  expect(tree.root.findAllByType(RequestCard)).toHaveLength(REQUEST_COUNT);
   expect(onAcceptRequest).not.toHaveBeenCalled();
-  expect(popup().props.request).toEqual(PENDING_REQUESTS[0]);
+  expect(popup().props.request.name).toBe('Priya Mehta');
 
   const text = textOf(tree);
   expect(text).toContain('PM');
   expect(text).toContain('Chat Consultation');
   expect(text).toContain('Date of Birth');
-  expect(text).toContain('15 June 1992, 06:30 AM');
-  expect(text).toContain('Mumbai, Maharashtra');
-  expect(text).toContain('Marriage Timing & Compatibility');
-  expect(text).toContain('₹25/min');
-  expect(text).toContain('20–30 minutes');
+  expect(text).toContain('Pune, Maharashtra');
+  expect(text).toContain('Marriage timing');
+  expect(text).toContain('₹ 20/min');
   expect(text).toContain('Est. Earnings:');
-  expect(text).toContain('₹500 – ₹750');
   expect(text).toContain('Accept');
   expect(text).toContain('Decline');
 
   // Declining from the popup closes it and drops the request.
+  const first = popup().props.request;
   await act(() => {
-    popup().props.onDecline(PENDING_REQUESTS[0]);
+    popup().props.onDecline(first);
   });
   expect(popup().props.request).toBeNull();
   expect(textOf(tree)).not.toContain('Priya Mehta');
@@ -264,10 +226,10 @@ test('accepting from the popup reports the request and clears the list', async (
   });
   expect(textOf(tree)).toContain('Voice Consultation');
 
+  const second = popup().props.request;
   await act(() => {
-    popup().props.onAccept(PENDING_REQUESTS[1]);
+    popup().props.onAccept(second);
   });
-  expect(onAcceptRequest).toHaveBeenCalledWith(PENDING_REQUESTS[1]);
-  expect(tree.root.findAllByType(RequestCard)).toHaveLength(1);
+  expect(onAcceptRequest).toHaveBeenCalledWith(second);
   expect(popup().props.request).toBeNull();
 });

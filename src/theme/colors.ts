@@ -28,6 +28,12 @@ export const colors = {
   scrim: 'rgba(0, 0, 0, 0.68)',
   /** Track behind the kundli sheet's segmented tabs. */
   surfaceTrack: '#F9F9F9',
+  /** Track behind the kundli details tabs — flat, not tinted (node 110:4526). */
+  surfaceTabTrack: '#E9EAEF',
+  /** A generate-kundli field — flat ink at 5% (Figma node 110:3913). */
+  surfaceField: 'rgba(15, 15, 43, 0.05)',
+  /** Every other row of a kundli table, at 5% (Figma node 110:4480). */
+  surfaceTableStripe: 'rgba(255, 239, 199, 0.05)',
   /** Alternating row on the dasha table. */
   surfaceRow: '#FFECBB',
   /** Ink-filled button — "Request Withdraw Money" (Figma node 112:1230). */
@@ -109,6 +115,8 @@ export const colors = {
     uploadHint: '#6D6D6D',
     /** The "Type...." placeholder — design-system `karmaguru blue-50`. */
     placeholderFaint: '#E9EAEF',
+    /** Placeholder inside a generate-kundli field (Figma node 110:3921). */
+    placeholderSoft: '#A1A1A1',
     /** Heading on a dashboard settings card — the KarmaGuru slate. */
     slate: '#34364E',
     /** Its supporting copy — design-system token `karmaguru blue-200`. Also the

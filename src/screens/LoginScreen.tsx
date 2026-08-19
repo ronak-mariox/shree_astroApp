@@ -12,6 +12,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { SunStarIcon } from '../components/icons/SunStarIcon';
 import { OrDivider } from '../components/OrDivider';
 import { PhoneField } from '../components/PhoneField';
+import { requestLoginOtp } from '../services/auth';
+import type { ApiError } from '../services/client';
 import { PrimaryButton } from '../components/PrimaryButton';
 import { SocialAuthButtons } from '../components/SocialAuthButtons';
 import { colors, hairline, radius, spacing, typography } from '../theme';
@@ -23,10 +25,14 @@ const CTA_HEIGHT = 51.998;
 const MOBILE_LENGTH = 10;
 
 type LoginScreenProps = {
-  /** Called with the entered number once "Send OTP" is tapped. */
-  onSendOtp?: (mobile: string) => void;
+  /**
+   * Called once a code has actually been sent, with the identifier it went to.
+   * `devCode` is present only while there is no SMS or mail provider.
+   */
+  onSendOtp?: (mobile: string, devCode?: string) => void;
+  /** No account behind that identifier — the screen offers registration. */
+  onRegister?: () => void;
   onGoogle?: () => void;
-  onFacebook?: () => void;
   onApple?: () => void;
 };
 
@@ -37,14 +43,45 @@ type LoginScreenProps = {
  */
 export function LoginScreen({
   onSendOtp,
+  onRegister,
   onGoogle,
-  onFacebook,
   onApple,
 }: LoginScreenProps) {
   const insets = useSafeAreaInsets();
   const [mobile, setMobile] = useState('');
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  /** True when the number has no account — the CTA turns into Register. */
+  const [notRegistered, setNotRegistered] = useState(false);
 
   const isComplete = mobile.length === MOBILE_LENGTH;
+
+  /**
+   * Asks the server for a code.
+   *
+   * An unregistered number comes back as `account_not_found`, which is the cue
+   * to send them to the application wizard rather than to an OTP screen.
+   */
+  const send = async () => {
+    if (!isComplete || sending) {
+      return;
+    }
+
+    setSending(true);
+    setError(null);
+    setNotRegistered(false);
+
+    try {
+      const sent = await requestLoginOtp({ channel: 'phone', phone: mobile });
+      onSendOtp?.(mobile, sent.devCode);
+    } catch (caught) {
+      const failure = caught as ApiError;
+      setNotRegistered(failure?.code === 'account_not_found');
+      setError(failure?.message ?? 'Something went wrong. Please try again.');
+    } finally {
+      setSending(false);
+    }
+  };
 
   return (
     <View style={styles.screen}>
@@ -77,7 +114,6 @@ export function LoginScreen({
           </View>
           <SocialAuthButtons
             onGoogle={onGoogle}
-            onFacebook={onFacebook}
             onApple={onApple}
           />
         </View>
@@ -86,13 +122,24 @@ export function LoginScreen({
         <View style={styles.spacer} />
 
         <View style={{ paddingBottom: spacing.lg + insets.bottom }}>
-          <PrimaryButton
-            label="Send OTP"
-            height={CTA_HEIGHT}
-            disabled={!isComplete}
-            labelStyle={typography.buttonStrong}
-            onPress={() => onSendOtp?.(mobile)}
-          />
+          {error !== null && <Text style={styles.error}>{error}</Text>}
+
+          {notRegistered ? (
+            <PrimaryButton
+              label="Create an account"
+              height={CTA_HEIGHT}
+              labelStyle={typography.buttonStrong}
+              onPress={onRegister}
+            />
+          ) : (
+            <PrimaryButton
+              label={sending ? 'Sending…' : 'Send OTP'}
+              height={CTA_HEIGHT}
+              disabled={!isComplete || sending}
+              labelStyle={typography.buttonStrong}
+              onPress={send}
+            />
+          )}
         </View>
       </KeyboardAvoidingView>
     </View>
@@ -100,6 +147,12 @@ export function LoginScreen({
 }
 
 const styles = StyleSheet.create({
+  error: {
+    ...typography.caption,
+    color: colors.status.danger,
+    textAlign: 'center',
+    paddingBottom: spacing.md,
+  },
   screen: {
     flex: 1,
     backgroundColor: colors.canvas,

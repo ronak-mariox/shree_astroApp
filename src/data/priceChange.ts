@@ -23,30 +23,6 @@ export type ServiceRate = {
   emergency?: boolean;
 };
 
-/**
- * Figma fills in only the first panel and leaves the rest closed, so the others
- * carry the same figures until a request is made against them.
- */
-const BASE = {
-  oldRate: '₹ 15',
-  currentRate: '₹ 15',
-  offer: '15%',
-  applyAll: 'Yas',
-  newRequestedRate: '₹ 15',
-  requestDate: '20 Jan, 2025',
-  status: 'Pending',
-} as const;
-
-/** Figma nodes 110:11983 – 110:12036, in order. */
-export const SEED_SERVICE_RATES: ReadonlyArray<ServiceRate> = [
-  { id: 'call', name: 'Call', ...BASE },
-  { id: 'chat', name: 'Chat', ...BASE },
-  { id: 'live-chat', name: 'Live Chat', ...BASE },
-  { id: 'live-call', name: 'Live Call', ...BASE },
-  { id: 'live-video-call', name: 'Live Video call', ...BASE },
-  { id: 'emergency-chat', name: 'Emergency Chat', ...BASE, emergency: true },
-];
-
 /** The rows a panel prints, in Figma's order (nodes 110:11987 – 110:12007). */
 export function rateRowsOf(service: ServiceRate) {
   return [

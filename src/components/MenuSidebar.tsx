@@ -132,7 +132,12 @@ export function MenuSidebar({
               </Pressable>
             </View>
 
-            <ScrollView contentContainerStyle={styles.items}>
+            <ScrollView
+              contentContainerStyle={[
+                styles.items,
+                { paddingBottom: spacing.xl + insets.bottom },
+              ]}
+            >
               {MENU_ITEMS.map(item => (
                 <Pressable
                   key={item.id}

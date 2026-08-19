@@ -2,6 +2,7 @@ import React from 'react';
 import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { KundliIcon } from './icons/KundliIcon';
 import { colors, radius, typography } from '../theme';
 
 const AVATAR_SIZE = 36;
@@ -68,12 +69,9 @@ export function ChatHeader({
         onPress={onOpenKundli}
         style={({ pressed }) => [styles.button, pressed && styles.pressed]}
       >
-        {/* Figma masks a solid #111 rectangle with this glyph, so the export is
-            tinted to the same ink rather than shown in its own colours. */}
-        <Image
-          source={require('../assets/images/kundli-glyph.png')}
-          style={styles.glyph}
-        />
+        {/* Figma masks a solid #111 rectangle with the chart artwork, so the
+            glyph is painted in that one ink (node 110:566). */}
+        <KundliIcon width={GLYPH_WIDTH} height={GLYPH_HEIGHT} />
       </Pressable>
 
       <Pressable
@@ -144,11 +142,6 @@ const styles = StyleSheet.create({
   },
   pressed: {
     opacity: 0.6,
-  },
-  glyph: {
-    width: GLYPH_WIDTH,
-    height: GLYPH_HEIGHT,
-    tintColor: colors.text.ink,
   },
   close: {
     ...typography.closeMark,

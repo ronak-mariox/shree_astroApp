@@ -2,9 +2,10 @@ import React from 'react';
 import ReactTestRenderer from 'react-test-renderer';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
-import { __resetPicker } from '../../src/services/filePicker';
-import { __resetApi } from '../../src/services/api';
 import { AppDataProvider } from '../../src/state/AppDataProvider';
+/** The API is mocked in jest.setup.js; this only resets it between tests. */
+import { resetApiMock } from './apiMock';
+import { pickFile } from '../../src/services/filePicker';
 
 const METRICS = {
   frame: { x: 0, y: 0, width: 390, height: 844 },
@@ -40,6 +41,15 @@ export const render = async (element: React.ReactElement) => {
       </SafeAreaProvider>,
     );
   });
+  /**
+   * App reads the keystore before it decides the first screen, and the provider
+   * fetches on mount. Both settle on a later tick, so one more pass is needed
+   * before a test can look for anything.
+   */
+  await act(async () => {
+    await new Promise<void>(resolve => setTimeout(resolve, 0));
+  });
+
   mounted.push(tree);
   return tree;
 };
@@ -81,8 +91,9 @@ export const inputLabelled = (
   );
 
 beforeEach(() => {
-  __resetApi();
-  __resetPicker();
+  resetApiMock();
+  /** Restarts the picker's file numbering; see jest.setup.js. */
+  (pickFile as jest.Mock).mockClear();
 });
 
 afterEach(async () => {

@@ -1,3 +1,9 @@
+import {
+  FIXTURE_BANK_ACCOUNTS,
+  MISSED_CALLS,
+  TRANSACTIONS,
+  WALLET_BALANCE,
+} from './helpers/fixtures';
 import React from 'react';
 import { TextInput } from 'react-native';
 import ReactTestRenderer from 'react-test-renderer';
@@ -7,15 +13,8 @@ import { IncomingRequestPopup } from '../src/components/IncomingRequestPopup';
 import { PrimaryButton } from '../src/components/PrimaryButton';
 import { RequestCard } from '../src/components/RequestCard';
 import { TransactionRow } from '../src/components/TransactionRow';
-import {
-  MISSED_CALLS,
-  PENDING_REQUESTS,
-} from '../src/data/dashboard';
-import {
-  PAYOUT_ACCOUNT,
-  TRANSACTIONS,
-  WALLET_BALANCE,
-} from '../src/data/wallet';
+
+
 import { ConsultScreen } from '../src/screens/ConsultScreen';
 import { WalletScreen } from '../src/screens/WalletScreen';
 import { WithdrawMoneyScreen } from '../src/screens/WithdrawMoneyScreen';
@@ -77,12 +76,15 @@ test('consult lists pending requests with answers and missed calls without', asy
   expect(text).toContain('Consult');
   expect(text).toContain('Pending Requests');
   expect(text).toContain('Missed Call');
-  expect(text).toContain('3 New');
+  /** Two of each, from the mocked queue and the missed list. */
+  expect(text).toContain('2 New');
   expect(text).toContain('Priya Mehta');
   expect(text).toContain('Arjun Rao');
 
+  /** Two waiting on an answer, and the missed list under them. */
+  const PENDING_COUNT = 2;
   const cards = tree.root.findAllByType(RequestCard);
-  expect(cards).toHaveLength(PENDING_REQUESTS.length + MISSED_CALLS.length);
+  expect(cards).toHaveLength(PENDING_COUNT + MISSED_CALLS.length);
   expect(cards.map(card => card.props.showActions)).toEqual([
     undefined,
     undefined,
@@ -107,16 +109,23 @@ test('a consult request opens its brief before it is answered', async () => {
   await act(() => {
     tree.root.findAllByType(RequestCard)[0].props.onAccept();
   });
-  expect(popup().props.request).toEqual(PENDING_REQUESTS[0]);
+  /**
+   * The card is built from what the server sent, so the identity is what
+   * matters here rather than a deep match against a fixed object.
+   */
+  expect(popup().props.request.name).toBe('Priya Mehta');
+  expect(popup().props.request.channel).toBe('chat');
   expect(onAcceptRequest).not.toHaveBeenCalled();
 
   await act(() => {
-    popup().props.onAccept(PENDING_REQUESTS[0]);
+    popup().props.onAccept(popup().props.request);
   });
-  expect(onAcceptRequest).toHaveBeenCalledWith(PENDING_REQUESTS[0]);
+  expect(onAcceptRequest).toHaveBeenCalledWith(
+    expect.objectContaining({ name: 'Priya Mehta' }),
+  );
   // The missed-call cards stay put; only the pending one goes.
   expect(tree.root.findAllByType(RequestCard)).toHaveLength(
-    PENDING_REQUESTS.length - 1 + MISSED_CALLS.length,
+    2 - 1 + MISSED_CALLS.length,
   );
 });
 
@@ -167,9 +176,11 @@ test('withdraw starts on ₹5,000 and presets rewrite the amount', async () => {
   expect(text).toContain(`Available: ${WALLET_BALANCE.total}`);
   expect(text).toContain('Enter Amount');
   expect(text).toContain('Transfer To');
-  expect(text).toContain(PAYOUT_ACCOUNT.bank);
-  expect(text).toContain(PAYOUT_ACCOUNT.account);
-  expect(text).toContain(PAYOUT_ACCOUNT.ifsc);
+  /** Payouts go to the first account on file. */
+  const payout = FIXTURE_BANK_ACCOUNTS[0];
+  expect(text).toContain(payout.bankName);
+  expect(text).toContain(`••••${payout.accountNumber.slice(-4)}`);
+  expect(text).toContain(payout.ifsc);
   expect(text).toContain('Settlement within 24 hours.');
 
   const field = () => tree.root.findByType(TextInput);

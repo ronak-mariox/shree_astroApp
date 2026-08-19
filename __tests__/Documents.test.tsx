@@ -5,9 +5,9 @@ import { BANK_INTRO } from '../src/data/bank';
 import {
   DEFAULT_DOCUMENT_TYPE,
   DOCUMENT_TYPES,
-  SEED_DOCUMENTS,
   groupDocuments,
 } from '../src/data/documents';
+import { FIXTURE_DOCUMENTS } from './helpers/fixtures';
 import { DocumentsScreen } from '../src/screens/DocumentsScreen';
 import {
   act,
@@ -17,7 +17,7 @@ import {
   textOf,
 } from './helpers/renderWithData';
 
-const GROUPS = groupDocuments(SEED_DOCUMENTS);
+const GROUPS = groupDocuments(FIXTURE_DOCUMENTS);
 
 test('documents lists every group with its scans, numbers and statuses', async () => {
   const tree = await render(<DocumentsScreen />);
@@ -45,7 +45,7 @@ test('documents lists every group with its scans, numbers and statuses', async (
         node.props.accessibilityLabel.startsWith('Update ') &&
         typeof node.props.onPress === 'function',
     ),
-  ).toHaveLength(SEED_DOCUMENTS.length);
+  ).toHaveLength(FIXTURE_DOCUMENTS.length);
 });
 
 test('Update replaces a scan with the picked file', async () => {

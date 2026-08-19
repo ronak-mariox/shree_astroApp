@@ -17,7 +17,7 @@ import {
   EMPTY_BANK_ACCOUNT,
   type BankAccountDraft,
 } from '../data/bank';
-import { pickFile } from '../services/filePicker';
+import { pickFile, type PickedFile } from '../services/filePicker';
 import { colors, radius, spacing, typography } from '../theme';
 
 const FIELD_HEIGHT = 32.289;
@@ -30,7 +30,7 @@ type AddBankAccountSheetProps = {
   /** Resolves true once the account is on file, so the sheet knows to close. */
   onSubmit: (
     draft: BankAccountDraft,
-    proofFileName?: string,
+    proof?: PickedFile,
   ) => Promise<boolean>;
   /** The last refusal from the server, shown above the buttons. */
   error?: string | null;
@@ -48,7 +48,7 @@ export function AddBankAccountSheet({
   error,
 }: AddBankAccountSheetProps) {
   const [draft, setDraft] = useState<BankAccountDraft>(EMPTY_BANK_ACCOUNT);
-  const [proof, setProof] = useState<string | null>(null);
+  const [proof, setProof] = useState<PickedFile | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
   const reset = () => {
@@ -64,7 +64,7 @@ export function AddBankAccountSheet({
   const browse = async () => {
     const file = await pickFile('proof');
     if (file) {
-      setProof(file.name);
+      setProof(file);
     }
   };
 
@@ -112,7 +112,7 @@ export function AddBankAccountSheet({
             <View style={styles.dropZoneText}>
               {proof ? (
                 <Text style={styles.uploadCopy} numberOfLines={1}>
-                  {proof}
+                  {proof.name}
                 </Text>
               ) : (
                 <View style={styles.dropZoneLine}>

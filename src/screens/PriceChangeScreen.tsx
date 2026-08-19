@@ -36,9 +36,14 @@ type PriceChangeScreenProps = {
 export function PriceChangeScreen({ onBack }: PriceChangeScreenProps) {
   const { serviceRates, requestPriceChange, error, clearError } = useAppData();
   /** Figma opens the screen on the first service. */
-  const [openId, setOpenId] = useState<string | null>(
-    serviceRates[0]?.id ?? null,
-  );
+  /**
+   * Which panel is open. `undefined` means "not chosen yet", which falls back to
+   * the first service — the rates arrive from the server a moment after mount,
+   * so a plain initial value would fix it to nothing.
+   */
+  const [chosenId, setChosenId] = useState<string | null | undefined>(undefined);
+  const openId = chosenId === undefined ? serviceRates[0]?.id ?? null : chosenId;
+  const setOpenId = setChosenId;
   /** Which service the sheet is repricing, if it is up. */
   const [repricing, setRepricing] = useState<string | null>(null);
 

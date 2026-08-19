@@ -1,3 +1,4 @@
+import { CHAT_TRANSCRIPT } from './helpers/fixtures';
 import React from 'react';
 import { TextInput } from 'react-native';
 import ReactTestRenderer from 'react-test-renderer';
@@ -9,13 +10,11 @@ import {
   QUOTED_BUBBLE_WIDTH,
 } from '../src/components/ChatBubble';
 import { ChatComposer } from '../src/components/ChatComposer';
-import { KundliSheet } from '../src/components/KundliSheet';
+import { GenerateKundliSheet } from '../src/components/GenerateKundliSheet';
+import { KundliDetailsSheet } from '../src/components/KundliDetailsSheet';
 import { LeaveChatDialog } from '../src/components/LeaveChatDialog';
-import {
-  CHAT_TRANSCRIPT,
-  DASHA_LEVELS,
-  DASHA_ROWS,
-} from '../src/data/chat';
+
+import { KUNDLI_TABLE_ROWS, KUNDLI_TABS } from '../src/data/kundli';
 import { ConsultationChatScreen } from '../src/screens/ConsultationChatScreen';
 
 const METRICS = {
@@ -82,7 +81,7 @@ const byLabel = (
   );
 
 test('chat renders the header, transcript and composer', async () => {
-  const tree = await render(<ConsultationChatScreen />);
+  const tree = await render(<ConsultationChatScreen chatId="chat-1" peerName="Astro Rakesh" elapsed="04:58 mins" />);
   const text = textOf(tree);
 
   expect(text).toContain('Astro Rakesh');
@@ -91,7 +90,8 @@ test('chat renders the header, transcript and composer', async () => {
   expect(text).toContain('DOB: 08-Feb-1999');
   expect(text).toContain('Generate Kundli');
   expect(text).toContain('Welcome to KarmaGuru');
-  expect(text).toContain('10:52 AM');
+  /** Times are formatted from each message's own timestamp. */
+  expect(text).toMatch(/\d{2}:\d{2}/);
 
   // The composer's prompt is a placeholder, so it lives on the input's props.
   expect(
@@ -104,12 +104,18 @@ test('chat renders the header, transcript and composer', async () => {
 });
 
 test('bubbles keep the widths and tail corners Figma gives them', async () => {
-  const tree = await render(<ConsultationChatScreen />);
+  const tree = await render(<ConsultationChatScreen chatId="chat-1" peerName="Astro Rakesh" elapsed="04:58 mins" />);
   const bubbles = tree.root.findAllByType(ChatBubble);
 
+  /**
+   * The tail follows who sent the message rather than being placed by hand:
+   * the astrologer's flicks off the trailing corner, the seeker's off the
+   * leading one. The transcript runs seeker, astrologer, seeker, astrologer,
+   * seeker.
+   */
   expect(bubbles.map(bubble => bubble.props.message.tail)).toEqual([
-    'right',
     'left',
+    'right',
     'left',
     'right',
     'left',
@@ -129,25 +135,24 @@ test('bubbles keep the widths and tail corners Figma gives them', async () => {
 });
 
 test('the quoted message keeps its quote card above the reply', async () => {
-  const tree = await render(<ConsultationChatScreen />);
+  const tree = await render(<ConsultationChatScreen chatId="chat-1" peerName="Astro Rakesh" elapsed="04:58 mins" />);
   const quoted = tree.root
     .findAllByType(ChatBubble)
     .find(bubble => bubble.props.message.quote !== undefined);
 
   expect(quoted).toBeDefined();
   expect(quoted?.props.message.quote.lines).toEqual([
-    'Welcome to KarmaGuru',
-    'Astrologer will join within 10 second',
+    /** One stored message, so the quote card carries one line. */
+    'Welcome to KarmaGuru Astrologer will join within 10 second  Please share your question in the meanwhile',
   ]);
-  // The reply below the card is a separate run of lines.
+  // The reply below the card is the message's own stored text.
   expect(quoted?.props.message.lines).toEqual([
-    'Please share your question in the the',
-    'meanwhile',
+    'Please share your question in the the meanwhile',
   ]);
 });
 
 test('sending appends the message and empties the draft', async () => {
-  const tree = await render(<ConsultationChatScreen />);
+  const tree = await render(<ConsultationChatScreen chatId="chat-1" peerName="Astro Rakesh" elapsed="04:58 mins" />);
   const composer = () => tree.root.findByType(ChatComposer);
 
   // A blank draft is ignored.
@@ -174,7 +179,7 @@ test('sending appends the message and empties the draft', async () => {
 
 test('the cross asks before leaving, and Stay keeps the chat', async () => {
   const onLeave = jest.fn();
-  const tree = await render(<ConsultationChatScreen onLeave={onLeave} />);
+  const tree = await render(<ConsultationChatScreen chatId="chat-1" peerName="Astro Rakesh" elapsed="04:58 mins" onLeave={onLeave} />);
 
   const dialog = () => tree.root.findByType(LeaveChatDialog);
   expect(dialog().props.visible).toBe(false);
@@ -205,84 +210,102 @@ test('the cross asks before leaving, and Stay keeps the chat', async () => {
   expect(dialog().props.visible).toBe(false);
 });
 
-test('the chart button opens the kundli sheet on its Lagna tab', async () => {
-  const tree = await render(<ConsultationChatScreen />);
+test('the chart button opens the generate-kundli form', async () => {
+  const tree = await render(<ConsultationChatScreen chatId="chat-1" peerName="Astro Rakesh" elapsed="04:58 mins" />);
 
-  const sheet = () => tree.root.findByType(KundliSheet);
-  expect(sheet().props.visible).toBe(false);
+  const form = () => tree.root.findByType(GenerateKundliSheet);
+  expect(form().props.visible).toBe(false);
 
   await act(() => {
     byLabel(tree, 'Kundli details').props.onPress();
   });
 
-  expect(sheet().props.visible).toBe(true);
+  expect(form().props.visible).toBe(true);
   const text = textOf(tree);
-  expect(text).toContain('Kundli Details');
-  expect(text).toContain('Lagna Chart');
-  expect(text).toContain('Dasha');
-  expect(text).toContain('Basic Birth Chart');
-
-  const tabs = pressablesWithRole(sheet(), 'tab');
-  expect(tabs.map(tab => tab.props.accessibilityState.selected)).toEqual([
-    true,
-    false,
-  ]);
+  expect(text).toContain('Generate kundli');
+  for (const label of ['Name', 'Gender', 'Day', 'Month', 'Year', 'Hour', 'Minute', 'Birth Place']) {
+    expect(text).toContain(label);
+  }
+  expect(text).toContain('Generate Kundli');
 });
 
-test('the Generate Kundli action opens the same sheet', async () => {
-  const tree = await render(<ConsultationChatScreen />);
+test('the Generate Kundli bubble action opens the same form', async () => {
+  const tree = await render(<ConsultationChatScreen chatId="chat-1" peerName="Astro Rakesh" elapsed="04:58 mins" />);
 
   await act(() => {
     tree.root.findAllByType(ChatBubble)[0].props.onAction();
   });
-  expect(tree.root.findByType(KundliSheet).props.visible).toBe(true);
+  expect(tree.root.findByType(GenerateKundliSheet).props.visible).toBe(true);
 });
 
-test('the dasha tab drills from Mahadasha through to Pratyantardasha', async () => {
-  const tree = await render(<ConsultationChatScreen />);
+test('generating hands the filled name to the details sheet', async () => {
+  const tree = await render(<ConsultationChatScreen chatId="chat-1" peerName="Astro Rakesh" elapsed="04:58 mins" />);
+
+  const details = () => tree.root.findByType(KundliDetailsSheet);
+  expect(details().props.visible).toBe(false);
 
   await act(() => {
     byLabel(tree, 'Kundli details').props.onPress();
   });
-
-  const sheet = () => tree.root.findByType(KundliSheet);
   await act(() => {
-    pressablesWithRole(sheet(), 'tab')[1].props.onPress();
+    tree.root.findByType(GenerateKundliSheet).props.onGenerate({
+      name: 'mithu',
+      gender: 'Male',
+      day: '08',
+      month: 'February',
+      year: '1999',
+      hour: '12',
+      minute: '45',
+      birthPlace: 'Delhi, India',
+    });
   });
 
+  expect(tree.root.findByType(GenerateKundliSheet).props.visible).toBe(false);
+  expect(details().props.visible).toBe(true);
+  expect(textOf(tree)).toContain('Kundli Details of mithu');
+});
+
+test('the details sheet opens on Lagna Chart and tabulates dasha and planets', async () => {
+  const tree = await render(<ConsultationChatScreen chatId="chat-1" peerName="Astro Rakesh" elapsed="04:58 mins" />);
+
+  await act(() => {
+    byLabel(tree, 'Kundli details').props.onPress();
+  });
+  await act(() => {
+    tree.root
+      .findByType(GenerateKundliSheet)
+      .props.onGenerate({ name: 'mithu' });
+  });
+
+  const sheet = () => tree.root.findByType(KundliDetailsSheet);
+  const tabs = () => pressablesWithRole(sheet(), 'tab');
+
+  expect(tabs().map(tab => tab.props.accessibilityLabel)).toEqual(
+    KUNDLI_TABS.map(tab => tab.label),
+  );
+  expect(tabs().map(tab => tab.props.accessibilityState.selected)).toEqual([
+    true,
+    false,
+    false,
+    false,
+  ]);
+
+  await act(() => {
+    tabs()[2].props.onPress();
+  });
   let text = textOf(tree);
-  expect(text).toContain('Mahadasha');
-  expect(text).toContain('Planet');
   expect(text).toContain('Start Date');
   expect(text).toContain('End Date');
-  for (const row of DASHA_ROWS) {
+  for (const row of KUNDLI_TABLE_ROWS) {
     expect(text).toContain(row.planet);
+    expect(text).toContain(row.longitude);
   }
-  expect(text).not.toContain('Back');
 
-  // Each row steps one level deeper, and the deepest level stops drilling.
   await act(() => {
-    byLabel(tree, `Jupiter ${DASHA_LEVELS[0]}`).props.onPress();
+    tabs()[3].props.onPress();
   });
   text = textOf(tree);
-  expect(text).toContain('Antardasha');
-  expect(text).toContain('Back');
-
-  await act(() => {
-    byLabel(tree, `Jupiter ${DASHA_LEVELS[1]}`).props.onPress();
-  });
-  expect(textOf(tree)).toContain('Pratyantardasha');
-
-  const deepest = sheet().findAll(
-    node => node.props.accessibilityLabel === `Jupiter ${DASHA_LEVELS[2]}`,
-  );
-  expect(deepest.some(node => node.props.disabled === true)).toBe(true);
-
-  // Back walks the drill-down out again.
-  await act(() => {
-    pressablesWithRole(sheet(), 'button')
-      .find(node => node.props.accessibilityLabel === undefined)
-      ?.props.onPress();
-  });
-  expect(textOf(tree)).toContain('Antardasha');
+  expect(text).toContain('Planets');
+  expect(text).toContain('Rashi');
+  expect(text).toContain('Longitude');
 });

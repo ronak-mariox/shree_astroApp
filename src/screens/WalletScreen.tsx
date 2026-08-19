@@ -12,7 +12,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BottomNav, type TabKey } from '../components/BottomNav';
 import { BankIcon } from '../components/icons/WalletIcons';
 import { TransactionRow } from '../components/TransactionRow';
-import { TRANSACTIONS, WALLET_BALANCE } from '../data/wallet';
+import { useApi } from '../hooks/useApi';
+import { fetchWallet } from '../services/api';
 import { colors, radius, spacing, typography } from '../theme';
 
 const BUTTON_HEIGHT = 49.992;
@@ -34,6 +35,11 @@ export function WalletScreen({
   onSelectTab,
   onWithdraw,
 }: WalletScreenProps) {
+  /** The header figures and the ledger, both read from the server. */
+  const wallet = useApi(() => fetchWallet(), []);
+  const balance = wallet.data?.balance;
+  const transactions = wallet.data?.transactions ?? [];
+
   const insets = useSafeAreaInsets();
 
   return (
@@ -45,12 +51,12 @@ export function WalletScreen({
             the status bar. */}
         <View style={[styles.header, { paddingTop: insets.top + 1 }]}>
           <Text style={styles.balanceLabel}>Total Wallet Balance</Text>
-          <Text style={styles.balance}>{WALLET_BALANCE.total}</Text>
+          <Text style={styles.balance}>{balance?.total ?? '—'}</Text>
 
           <View style={styles.tiles}>
-            <Tile value={WALLET_BALANCE.today} label="Today" />
-            <Tile value={WALLET_BALANCE.monthly} label="Monthly" />
-            <Tile value={WALLET_BALANCE.lifetime} label="Lifetime" />
+            <Tile value={balance?.today ?? '—'} label="Today" />
+            <Tile value={balance?.monthly ?? '—'} label="Monthly" />
+            <Tile value={balance?.lifetime ?? '—'} label="Lifetime" />
           </View>
 
           <Pressable
@@ -69,7 +75,7 @@ export function WalletScreen({
         <View style={styles.history}>
           <Text style={styles.historyTitle}>Transaction History</Text>
           <View style={styles.transactions}>
-            {TRANSACTIONS.map(transaction => (
+            {transactions.map(transaction => (
               <TransactionRow key={transaction.id} transaction={transaction} />
             ))}
           </View>

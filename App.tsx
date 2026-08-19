@@ -4,10 +4,14 @@
  * @format
  */
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
+import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { AppDataProvider } from './src/state/AppDataProvider';
+import { signOut as endSession } from './src/services/auth';
+import { onSessionChange, restoreSession } from './src/services/session';
+import { colors } from './src/theme';
 
 import { type TabKey } from './src/components/BottomNav';
 import { MenuSidebar } from './src/components/MenuSidebar';
@@ -46,6 +50,8 @@ import { WithdrawSuccessScreen } from './src/screens/WithdrawSuccessScreen';
  * signed-in shell grows past its first tab.
  */
 type Route =
+  /** Before the keystore has been read — nobody knows who is signed in yet. */
+  | 'restoring'
   | 'welcome'
   | 'onboarding'
   | 'accountGate'
@@ -92,7 +98,9 @@ const formatMobile = (digits: string) =>
   digits.length === 10 ? `${digits.slice(0, 5)} ${digits.slice(5)}` : digits;
 
 function App() {
-  const [route, setRoute] = useState<Route>('welcome');
+  const [route, setRoute] = useState<Route>('restoring');
+  /** The code the API returned while there is no SMS provider. */
+  const [devCode, setDevCode] = useState<string | undefined>(undefined);
   /** The number login collected, carried into the OTP screen. */
   const [mobile, setMobile] = useState('');
   /** Which tab of the signed-in shell is showing. */
@@ -109,6 +117,49 @@ function App() {
   /** Whether the navigation drawer is open over the current tab. */
   const [menuOpen, setMenuOpen] = useState(false);
 
+  /**
+   * The keystore is read once, at startup, and decides the first screen.
+   *
+   * Nothing is drawn until it answers — routing to the welcome screen first and
+   * correcting a moment later would flash the sign-in flow at an already
+   * signed-in astrologer on every launch.
+   */
+  useEffect(() => {
+    let live = true;
+
+    restoreSession().then(session => {
+      if (live) {
+        setRoute(session ? 'dashboard' : 'welcome');
+      }
+    });
+
+    return () => {
+      live = false;
+    };
+  }, []);
+
+  /**
+   * A session can also end without anyone pressing anything: a refresh token
+   * the API refuses is cleared by the client, from wherever they happened to
+   * be. Listening here is what turns that into navigation.
+   */
+  useEffect(
+    () =>
+      onSessionChange(session => {
+        if (!session) {
+          setRoute(current => (current === 'restoring' ? current : 'accountGate'));
+        }
+      }),
+    [],
+  );
+
+  /** Clears the keystore first, so "signed out" is true before it is drawn. */
+  const signOut = async () => {
+    await endSession();
+    setTab('home');
+    setRoute('accountGate');
+  };
+
   /** Menu is a drawer rather than a tab, so it opens over whatever is showing. */
   const selectTab = (next: TabKey) => {
     if (next === 'menu') {
@@ -121,6 +172,13 @@ function App() {
   return (
     <SafeAreaProvider>
       <AppDataProvider>
+      {/* Held while the keystore is read; see the effect above. */}
+      {route === 'restoring' && (
+        <View style={styles.splash}>
+          <ActivityIndicator color={colors.brandYellow} />
+        </View>
+      )}
+
       {route === 'welcome' && (
         <WelcomeScreen
           onLogin={() => setRoute('onboarding')}
@@ -144,16 +202,20 @@ function App() {
 
       {route === 'login' && (
         <LoginScreen
-          onSendOtp={digits => {
+          onSendOtp={(digits, code) => {
             setMobile(digits);
+            setDevCode(code);
             setRoute('otp');
           }}
+          onRegister={() => setRoute('personalInfo')}
         />
       )}
 
       {route === 'otp' && (
         <OtpVerificationScreen
           mobile={formatMobile(mobile)}
+          phone={mobile}
+          devCode={devCode}
           onVerified={() => setRoute('dashboard')}
         />
       )}
@@ -169,10 +231,7 @@ function App() {
           onViewProfile={() => setRoute('profile')}
           onBankDetails={() => setRoute('bankAccounts')}
           onDocuments={() => setRoute('documents')}
-          onLogout={() => {
-            setTab('home');
-            setRoute('accountGate');
-          }}
+          onLogout={signOut}
         />
       )}
 
@@ -319,5 +378,14 @@ function App() {
     </SafeAreaProvider>
   );
 }
+
+const styles = StyleSheet.create({
+  splash: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.surface,
+  },
+});
 
 export default App;

@@ -619,6 +619,12 @@ export const typography = {
     fontSize: 12,
     lineHeight: 18,
   },
+  /** "Generate Kundli" on the form sheet's CTA (Figma node 110:3930). */
+  sheetAction: {
+    fontFamily: fontFamily.bold,
+    fontSize: 12,
+    lineHeight: 18,
+  },
   /** Copy inside the leave-chat dialog, and its buttons. */
   dialogBody: {
     fontFamily: fontFamily.regular,

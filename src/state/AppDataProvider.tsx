@@ -8,26 +8,36 @@ import React, {
 } from 'react';
 
 import {
-  SEED_BANK_ACCOUNTS,
   type BankAccount,
   type BankAccountDraft,
   type BankTransaction,
 } from '../data/bank';
 import {
-  SEED_DOCUMENTS,
   groupDocuments,
   type DocumentGroup,
   type UploadedDocument,
 } from '../data/documents';
-import {
-  SEED_SERVICE_RATES,
-  type PriceChangeDraft,
-  type ServiceRate,
-} from '../data/priceChange';
-import { SEED_PROFILE, type AstrologerProfile } from '../data/profile';
-import { SEED_REVIEWS, type Review } from '../data/reviews';
+import { type PriceChangeDraft, type ServiceRate } from '../data/priceChange';
+import { type AstrologerProfile } from '../data/profile';
+import { type Review } from '../data/reviews';
 import { type Dispute } from '../data/support';
 import * as api from '../services/api';
+import type { PickedFile } from '../services/filePicker';
+
+/** An empty profile, so the first paint has the right shape to read from. */
+const BLANK_PROFILE: AstrologerProfile = {
+  astroCode: '',
+  fullName: '',
+  email: '',
+  primaryMobile: '',
+  secondaryMobile: '',
+  gender: '',
+  dob: '',
+  language: '',
+  experience: '',
+  skill: '',
+  about: '',
+};
 
 /**
  * Everything the signed-in screens read, and the writes they make.
@@ -48,21 +58,26 @@ type AppData = {
   error: string | null;
   clearError: () => void;
 
+  /** True while the first load is still in flight. */
+  loading: boolean;
+  /** Re-reads everything from the server. */
+  refresh: () => Promise<void>;
+
   saveProfile: (profile: AstrologerProfile) => Promise<boolean>;
-  changeProfilePhoto: (fileName: string) => Promise<boolean>;
+  changeProfilePhoto: (file: PickedFile) => Promise<boolean>;
 
   addBankAccount: (
     draft: BankAccountDraft,
-    proofFileName?: string,
+    proof?: PickedFile,
   ) => Promise<boolean>;
   loadTransactions: () => Promise<BankTransaction[]>;
 
   uploadDocument: (input: {
     type: string;
     idNumber: string;
-    fileName: string;
+    file?: PickedFile;
   }) => Promise<boolean>;
-  replaceDocument: (id: string, fileName: string) => Promise<boolean>;
+  replaceDocument: (id: string, file: PickedFile) => Promise<boolean>;
   deleteDocument: (id: string) => Promise<boolean>;
 
   submitDispute: (dispute: Dispute) => Promise<boolean>;
@@ -88,43 +103,53 @@ export function useAppData(): AppData {
 }
 
 export function AppDataProvider({ children }: { children: React.ReactNode }) {
-  /* Seeded so the first paint has content; the fetches below then replace it
-     with whatever the server actually holds. */
-  const [profile, setProfile] = useState<AstrologerProfile>(SEED_PROFILE);
-  const [bankAccounts, setBankAccounts] =
-    useState<ReadonlyArray<BankAccount>>(SEED_BANK_ACCOUNTS);
-  const [documents, setDocuments] =
-    useState<ReadonlyArray<UploadedDocument>>(SEED_DOCUMENTS);
-  const [serviceRates, setServiceRates] =
-    useState<ReadonlyArray<ServiceRate>>(SEED_SERVICE_RATES);
-  const [reviews, setReviews] = useState<ReadonlyArray<Review>>(SEED_REVIEWS);
+  /* Empty until the server answers — nothing on screen is ever invented. */
+  const [profile, setProfile] = useState<AstrologerProfile>(BLANK_PROFILE);
+  const [bankAccounts, setBankAccounts] = useState<ReadonlyArray<BankAccount>>([]);
+  const [documents, setDocuments] = useState<ReadonlyArray<UploadedDocument>>([]);
+  const [serviceRates, setServiceRates] = useState<ReadonlyArray<ServiceRate>>([]);
+  const [reviews, setReviews] = useState<ReadonlyArray<Review>>([]);
   const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  /**
+   * Reads everything the signed-in screens need.
+   *
+   * `allSettled` rather than `all`: one endpoint failing — an astrologer with
+   * no rates set yet, say — must not blank the other four.
+   */
+  const refresh = useCallback(async () => {
+    setLoading(true);
+    const results = await Promise.allSettled([
+      api.fetchProfile(),
+      api.fetchBankAccounts(),
+      api.fetchDocuments(),
+      api.fetchServiceRates(),
+      api.fetchReviews(),
+    ]);
+
+    const [nextProfile, nextAccounts, nextDocuments, nextRates, nextReviews] = results;
+    if (nextProfile.status === 'fulfilled') setProfile(nextProfile.value);
+    if (nextAccounts.status === 'fulfilled') setBankAccounts(nextAccounts.value);
+    if (nextDocuments.status === 'fulfilled') setDocuments(nextDocuments.value);
+    if (nextRates.status === 'fulfilled') setServiceRates(nextRates.value);
+    if (nextReviews.status === 'fulfilled') setReviews(nextReviews.value);
+
+    /** Only the profile failing is worth telling the user about. */
+    if (nextProfile.status === 'rejected') {
+      setError(
+        nextProfile.reason instanceof Error
+          ? nextProfile.reason.message
+          : 'Could not load your profile.',
+      );
+    }
+
+    setLoading(false);
+  }, []);
 
   useEffect(() => {
-    let live = true;
-    const load = async () => {
-      const [nextProfile, nextAccounts, nextDocuments, nextRates, nextReviews] =
-        await Promise.all([
-          api.fetchProfile(),
-          api.fetchBankAccounts(),
-          api.fetchDocuments(),
-          api.fetchServiceRates(),
-          api.fetchReviews(),
-        ]);
-      if (!live) return;
-      setProfile(nextProfile);
-      setBankAccounts(nextAccounts);
-      setDocuments(nextDocuments);
-      setServiceRates(nextRates);
-      setReviews(nextReviews);
-    };
-    load().catch(() => {
-      /* The seeds stay on screen if the first load fails. */
-    });
-    return () => {
-      live = false;
-    };
-  }, []);
+    refresh();
+  }, [refresh]);
 
   /** Runs a write, keeping whatever it returns and surfacing any refusal. */
   const attempt = useCallback(
@@ -151,20 +176,22 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       documentGroups: groupDocuments(documents),
       error,
       clearError: () => setError(null),
+      loading,
+      refresh,
 
       saveProfile: next =>
         attempt(async () => {
           setProfile(await api.saveProfile(next));
         }),
 
-      changeProfilePhoto: fileName =>
+      changeProfilePhoto: file =>
         attempt(async () => {
-          setProfile(await api.uploadProfilePhoto(fileName));
+          setProfile(await api.uploadProfilePhoto(file));
         }),
 
-      addBankAccount: (draft, proofFileName) =>
+      addBankAccount: (draft, proof) =>
         attempt(async () => {
-          const account = await api.addBankAccount(draft, proofFileName);
+          const account = await api.addBankAccount(draft, proof);
           setBankAccounts(current => [...current, account]);
         }),
 
@@ -176,9 +203,9 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
           setDocuments(current => [...current, document]);
         }),
 
-      replaceDocument: (id, fileName) =>
+      replaceDocument: (id, file) =>
         attempt(async () => {
-          const updated = await api.replaceDocument(id, fileName);
+          const updated = await api.replaceDocument(id, file);
           setDocuments(current =>
             current.map(document => (document.id === id ? updated : document)),
           );
@@ -234,7 +261,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
           );
         }),
     }),
-    [profile, bankAccounts, documents, serviceRates, reviews, error, attempt],
+    [profile, bankAccounts, documents, serviceRates, reviews, error, loading, refresh, attempt],
   );
 
   return (

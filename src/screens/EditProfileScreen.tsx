@@ -73,7 +73,16 @@ type EditProfileScreenProps = {
 export function EditProfileScreen({ onBack, onClose }: EditProfileScreenProps) {
   const { profile, saveProfile, changeProfilePhoto, error, clearError } =
     useAppData();
-  const [draft, setDraft] = useState<AstrologerProfile>(profile);
+  /**
+   * Unsaved edits, if any.
+   *
+   * The form is *derived* from the record rather than copied into state at
+   * mount: `edits` is null until something is typed, and from then on it is the
+   * whole form. Snapshotting instead would leave the fields blank whenever the
+   * record has not arrived from the server yet.
+   */
+  const [edits, setEdits] = useState<AstrologerProfile | null>(null);
+  const draft = edits ?? profile;
   const [picker, setPicker] = useState<Picker>(null);
   const [saving, setSaving] = useState(false);
   const [pickingPhoto, setPickingPhoto] = useState(false);
@@ -81,13 +90,13 @@ export function EditProfileScreen({ onBack, onClose }: EditProfileScreenProps) {
   const set = <K extends keyof AstrologerProfile>(
     key: K,
     value: AstrologerProfile[K],
-  ) => setDraft(current => ({ ...current, [key]: value }));
+  ) => setEdits(current => ({ ...(current ?? profile), [key]: value }));
 
   const changePhoto = async () => {
     setPickingPhoto(true);
     const file = await pickFile('photo');
     if (file) {
-      await changeProfilePhoto(file.name);
+      await changeProfilePhoto(file);
       set('photoFileName', file.name);
     }
     setPickingPhoto(false);

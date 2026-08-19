@@ -34,34 +34,6 @@ export type Review = {
   month: string;
 };
 
-/** Figma draws two cards, both against May 2025 (nodes 110:12283, 110:12306). */
-export const SEED_REVIEWS: ReadonlyArray<Review> = [
-  {
-    id: 'review-1',
-    reviewer: 'Rahul Sharma',
-    orderId: '45235452155632',
-    date: 'Mar 05, 2024',
-    service: 'Chat',
-    duration: '4 Mins',
-    rating: 1,
-    comment: 'I dont like your Astrology Skills',
-    year: '2025',
-    month: 'May',
-  },
-  {
-    id: 'review-2',
-    reviewer: 'Rahul Sharma',
-    orderId: '45235452155632',
-    date: 'Mar 05, 2024',
-    service: 'Chat',
-    duration: '4 Mins',
-    rating: 1,
-    comment: 'I dont like your Astrology Skills',
-    year: '2025',
-    month: 'May',
-  },
-];
-
 /** What the two filters above the list offer (Figma nodes 110:12338, 110:12343). */
 export const REVIEW_YEARS = ['2023', '2024', '2025'];
 

@@ -89,9 +89,11 @@ const styles = StyleSheet.create({
     opacity: 1,
     alignItems: 'center',
     justifyContent: 'center',
+    paddingHorizontal: spacing.lg,
   },
   card: {
-    width: CARD_WIDTH,
+    width: '100%',
+    maxWidth: CARD_WIDTH,
     paddingTop: 33.76,
     paddingBottom: 12,
     paddingHorizontal: 11,

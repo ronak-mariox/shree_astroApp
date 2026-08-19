@@ -47,7 +47,7 @@ export function DocumentsScreen({ onBack }: DocumentsScreenProps) {
     setBusyId(document.id);
     const file = await pickFile('document');
     if (file) {
-      await replaceDocument(document.id, file.name);
+      await replaceDocument(document.id, file);
     }
     setBusyId(null);
   };

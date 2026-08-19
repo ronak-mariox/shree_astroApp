@@ -6,12 +6,9 @@ import { BottomNav, type TabKey } from '../components/BottomNav';
 import { IncomingRequestPopup } from '../components/IncomingRequestPopup';
 import { RequestCard, type ConsultationRequest } from '../components/RequestCard';
 import { SectionHeader } from '../components/SectionHeader';
-import {
-  MISSED_CALLS,
-  MISSED_COUNT,
-  PENDING_COUNT,
-  PENDING_REQUESTS,
-} from '../data/dashboard';
+import { useApi } from '../hooks/useApi';
+import * as api from '../services/api';
+import { requestsFromApi } from '../utils/requests';
 import { colors, hairline, spacing, typography } from '../theme';
 
 type ConsultScreenProps = {
@@ -32,16 +29,38 @@ export function ConsultScreen({
   onAcceptRequest,
 }: ConsultScreenProps) {
   const insets = useSafeAreaInsets();
-  const [requests, setRequests] = useState<ConsultationRequest[]>([
-    ...PENDING_REQUESTS,
-  ]);
+
+  /** The queue, read from the server. */
+  const queue = useApi(() => api.fetchRequests(), []);
+  /** Requests that were never answered — the "missed" list. */
+  const missed = useApi(() => api.fetchConsultations('missed'), []);
+
+  const requests = requestsFromApi(queue.data ?? []);
+  const missedCalls = requestsFromApi(
+    (missed.data ?? []).map((row: any) => ({
+      chatId: row.id,
+      channel: row.channel,
+      user: { id: row.with?.id, name: row.with?.name },
+      intake: { topic: row.topic },
+      ratePerMinute: 0,
+      requestedAt: row.createdAt,
+    })),
+  );
+
   const [reviewing, setReviewing] = useState<ConsultationRequest | null>(null);
 
-  const answer = (request: ConsultationRequest, accepted: boolean) => {
+  const answer = async (request: ConsultationRequest, accepted: boolean) => {
     setReviewing(null);
-    setRequests(current => current.filter(item => item.id !== request.id));
-    if (accepted) {
-      onAcceptRequest?.(request);
+
+    try {
+      if (accepted) {
+        await api.acceptRequest(request.id);
+        onAcceptRequest?.(request);
+      } else {
+        await api.rejectRequest(request.id, 'Declined');
+      }
+    } finally {
+      await queue.reload();
     }
   };
 
@@ -59,7 +78,7 @@ export function ConsultScreen({
         <View style={styles.section}>
           <SectionHeader
             title="Pending Requests"
-            badge={`${PENDING_COUNT} New`}
+            badge={`${requests.length} New`}
           />
           {requests.map(request => (
             <RequestCard
@@ -72,8 +91,8 @@ export function ConsultScreen({
         </View>
 
         <View style={styles.section}>
-          <SectionHeader title="Missed Call" badge={`${MISSED_COUNT} New`} />
-          {MISSED_CALLS.map(call => (
+          <SectionHeader title="Missed Call" badge={`${missedCalls.length} New`} />
+          {missedCalls.map(call => (
             <RequestCard key={call.id} request={call} showActions={false} />
           ))}
         </View>

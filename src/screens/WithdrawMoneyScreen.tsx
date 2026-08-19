@@ -16,11 +16,11 @@ import { InfoCircleSquareIcon } from '../components/icons/WalletIcons';
 import { InfoNote } from '../components/InfoNote';
 import { PrimaryButton } from '../components/PrimaryButton';
 import {
-  PAYOUT_ACCOUNT,
-  WALLET_BALANCE,
   WITHDRAW_DEFAULT,
   WITHDRAW_PRESETS,
 } from '../data/wallet';
+import { useApi } from '../hooks/useApi';
+import { fetchEarnings, fetchBankAccounts } from '../services/api';
 import {
   colors,
   hairline,
@@ -48,6 +48,14 @@ export function WithdrawMoneyScreen({
   onBack,
   onConfirm,
 }: WithdrawMoneyScreenProps) {
+  /** What is actually withdrawable, and where it would go. */
+  const earnings = useApi(() => fetchEarnings(), []);
+  const accounts = useApi(() => fetchBankAccounts(), []);
+
+  const available = `₹${Math.round(earnings.data?.balance ?? 0).toLocaleString('en-IN')}`;
+  /** The primary account is the first one on file. */
+  const payout = (accounts.data ?? [])[0];
+
   const insets = useSafeAreaInsets();
   const [amount, setAmount] = useState(WITHDRAW_DEFAULT);
 
@@ -71,7 +79,7 @@ export function WithdrawMoneyScreen({
         </Pressable>
 
         <Text style={styles.title}>Withdraw Money</Text>
-        <Text style={styles.available}>Available: {WALLET_BALANCE.total}</Text>
+        <Text style={styles.available}>Available: {available}</Text>
       </View>
 
       <ScrollView contentContainerStyle={styles.content}>
@@ -123,9 +131,9 @@ export function WithdrawMoneyScreen({
         <View style={styles.card}>
           <FieldLabel>Transfer To</FieldLabel>
           <View style={styles.accountRows}>
-            <AccountRow label="Bank" value={PAYOUT_ACCOUNT.bank} />
-            <AccountRow label="Account" value={PAYOUT_ACCOUNT.account} />
-            <AccountRow label="IFSC" value={PAYOUT_ACCOUNT.ifsc} />
+            <AccountRow label="Bank" value={payout?.bankName ?? '—'} />
+            <AccountRow label="Account" value={payout ? `••••${String(payout.accountNumber).slice(-4)}` : '—'} />
+            <AccountRow label="IFSC" value={payout?.ifsc ?? '—'} />
           </View>
         </View>
 

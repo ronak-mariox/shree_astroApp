@@ -1,9 +1,10 @@
 import React from 'react';
 
+import { FIXTURE_PROFILE } from './helpers/fixtures';
+
 import { OptionPickerSheet } from '../src/components/OptionPickerSheet';
 import {
   EDIT_GALLERIES,
-  SEED_PROFILE,
   personalInformationOf,
   primaryMobileOf,
 } from '../src/data/profile';
@@ -21,18 +22,18 @@ test('my profile prints the identity, every detail row, the blurb and the galler
   const text = textOf(await render(<MyProfileScreen />));
 
   expect(text).toContain('My Profile');
-  expect(text).toContain(SEED_PROFILE.fullName);
-  expect(text).toContain(SEED_PROFILE.email);
-  expect(text).toContain(primaryMobileOf(SEED_PROFILE));
+  expect(text).toContain(FIXTURE_PROFILE.fullName);
+  expect(text).toContain(FIXTURE_PROFILE.email);
+  expect(text).toContain(primaryMobileOf(FIXTURE_PROFILE));
 
   expect(text).toContain('Personal Information');
-  for (const row of personalInformationOf(SEED_PROFILE)) {
+  for (const row of personalInformationOf(FIXTURE_PROFILE)) {
     expect(text).toContain(row.label);
     expect(text).toContain(row.value);
   }
 
   expect(text).toContain('About Us');
-  expect(text).toContain(SEED_PROFILE.about);
+  expect(text).toContain(FIXTURE_PROFILE.about);
   expect(text).toContain('Astrologer Profile Gallery');
 });
 
@@ -80,9 +81,9 @@ test('edit profile opens on the record and lays out both galleries', async () =>
   }
 
   // The select fields print the record's own values, not Figma's mock ones.
-  expect(text).toContain(SEED_PROFILE.gender);
-  expect(text).toContain(SEED_PROFILE.skill);
-  expect(text).toContain(SEED_PROFILE.language);
+  expect(text).toContain(FIXTURE_PROFILE.gender);
+  expect(text).toContain(FIXTURE_PROFILE.skill);
+  expect(text).toContain(FIXTURE_PROFILE.language);
 
   for (const gallery of EDIT_GALLERIES) {
     expect(text).toContain(gallery.title);
@@ -111,7 +112,7 @@ test('Update saves the edit, and My Profile then reads it back', async () => {
   expect(onClose).toHaveBeenCalled();
   // Both screens share one store, so the read screen has the new name.
   expect(textOf(tree)).toContain('Astro Ragini');
-  expect(textOf(tree)).not.toContain(SEED_PROFILE.fullName);
+  expect(textOf(tree)).not.toContain(FIXTURE_PROFILE.fullName);
 });
 
 test('Cancel leaves the form without saving anything', async () => {
@@ -131,7 +132,7 @@ test('Cancel leaves the form without saving anything', async () => {
   });
 
   expect(onClose).toHaveBeenCalled();
-  expect(textOf(tree)).toContain(SEED_PROFILE.fullName);
+  expect(textOf(tree)).toContain(FIXTURE_PROFILE.fullName);
 });
 
 test('the Gender select opens a picker whose choice lands on the field', async () => {

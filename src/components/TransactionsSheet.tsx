@@ -1,5 +1,11 @@
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import {
+  ActivityIndicator,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 
 import { BottomSheet } from './BottomSheet';
 import { NoRequestsIcon } from './icons/ProfileIcons';
@@ -48,7 +54,8 @@ export function TransactionsSheet({
 
   return (
     <BottomSheet visible={visible} title="Transactions" onDismiss={onDismiss}>
-      <View style={styles.body}>
+      {/* A long ledger scrolls rather than running off the sheet. */}
+      <ScrollView contentContainerStyle={styles.body}>
         {transactions === null && (
           <View style={styles.centred}>
             <ActivityIndicator color={colors.text.slateMuted} />
@@ -77,7 +84,7 @@ export function TransactionsSheet({
             </View>
           </View>
         ))}
-      </View>
+      </ScrollView>
     </BottomSheet>
   );
 }

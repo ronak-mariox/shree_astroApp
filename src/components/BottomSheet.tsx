@@ -1,5 +1,14 @@
 import React from 'react';
-import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import {
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { SheetCloseIcon } from './icons/BankIcons';
 import { colors, radius, spacing, typography } from '../theme';
@@ -25,6 +34,8 @@ export function BottomSheet({
   onDismiss,
   children,
 }: BottomSheetProps) {
+  const insets = useSafeAreaInsets();
+
   return (
     <Modal
       visible={visible}
@@ -40,24 +51,37 @@ export function BottomSheet({
           onPress={onDismiss}
         />
 
-        <View style={styles.sheet}>
-          <View style={styles.header}>
-            <Text style={styles.title}>{title}</Text>
-            {/* Labelled "Dismiss" rather than "Close" so it stays distinct
-                from a sheet's own Close button. */}
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={`Dismiss ${title}`}
-              onPress={onDismiss}
-              hitSlop={spacing.sm}
-              style={({ pressed }) => pressed && styles.pressed}
-            >
-              <SheetCloseIcon />
-            </Pressable>
-          </View>
+        {/* Keeps a text field clear of the keyboard instead of letting the
+            sheet slide under it. */}
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          pointerEvents="box-none"
+          style={[styles.lift, { paddingTop: insets.top + spacing.xl }]}
+        >
+          <View style={styles.sheet}>
+            <View style={styles.header}>
+              <Text style={styles.title}>{title}</Text>
+              {/* Labelled "Dismiss" rather than "Close" so it stays distinct
+                  from a sheet's own Close button. */}
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`Dismiss ${title}`}
+                onPress={onDismiss}
+                hitSlop={spacing.sm}
+                style={({ pressed }) => pressed && styles.pressed}
+              >
+                <SheetCloseIcon />
+              </Pressable>
+            </View>
 
-          {children}
-        </View>
+            {/* The body shrinks to whatever room is left, so a long sheet
+                scrolls inside instead of running off the screen, and it clears
+                the home indicator on the way down. */}
+            <View style={[styles.body, { paddingBottom: insets.bottom }]}>
+              {children}
+            </View>
+          </View>
+        </KeyboardAvoidingView>
       </View>
     </Modal>
   );
@@ -65,6 +89,9 @@ export function BottomSheet({
 
 const styles = StyleSheet.create({
   stage: {
+    flex: 1,
+  },
+  lift: {
     flex: 1,
     justifyContent: 'flex-end',
   },
@@ -78,6 +105,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
   },
   sheet: {
+    flexShrink: 1,
     borderTopLeftRadius: radius.input,
     borderTopRightRadius: radius.input,
     borderWidth: 1,
@@ -85,6 +113,9 @@ const styles = StyleSheet.create({
     borderColor: colors.border.sheet,
     backgroundColor: colors.surface,
     overflow: 'hidden',
+  },
+  body: {
+    flexShrink: 1,
   },
   header: {
     flexDirection: 'row',

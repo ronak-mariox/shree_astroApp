@@ -3,13 +3,8 @@ import React from 'react';
 import { AddBankAccountSheet } from '../src/components/AddBankAccountSheet';
 import { BankAttachmentSheet } from '../src/components/BankAttachmentSheet';
 import { TransactionsSheet } from '../src/components/TransactionsSheet';
-import {
-  BANK_ACCOUNT_FIELDS,
-  BANK_INTRO,
-  SEED_BANK_ACCOUNTS,
-  SEED_TRANSACTIONS,
-  bankRowsOf,
-} from '../src/data/bank';
+import { BANK_ACCOUNT_FIELDS, BANK_INTRO, bankRowsOf } from '../src/data/bank';
+import { FIXTURE_BANK_ACCOUNTS, FIXTURE_TRANSACTIONS } from './helpers/fixtures';
 import { BankAccountsScreen } from '../src/screens/BankAccountsScreen';
 import {
   act,
@@ -20,7 +15,7 @@ import {
   textOf,
 } from './helpers/renderWithData';
 
-const ACCOUNT = SEED_BANK_ACCOUNTS[0];
+const ACCOUNT = FIXTURE_BANK_ACCOUNTS[0];
 
 /** Fills the sheet with an account the server will accept. */
 const fillValidAccount = async (tree: any) => {
@@ -93,7 +88,7 @@ test('View Trangection opens the ledger', async () => {
   await flush();
   const text = textOf(tree);
   expect(text).toContain('Transactions');
-  for (const transaction of SEED_TRANSACTIONS) {
+  for (const transaction of FIXTURE_TRANSACTIONS) {
     expect(text).toContain(transaction.reference);
     expect(text).toContain(transaction.amount);
   }

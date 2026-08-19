@@ -23,17 +23,26 @@ import { ProfileMenu, type ProfileMenuAction } from '../components/ProfileMenu';
 import { RequestCard, type ConsultationRequest } from '../components/RequestCard';
 import { ServicesCard, type ServiceRow } from '../components/ServicesCard';
 import { StatCard } from '../components/StatCard';
-import {
-  ASTROLOGER,
-  EARNINGS,
-  LIFE_ASPECTS,
-  PENDING_COUNT,
-  PENDING_REQUESTS,
-  PERFORMANCE,
-  SERVICES,
-  SKILLS,
-} from '../data/dashboard';
+import { useApi } from '../hooks/useApi';
+import { requestsFromApi } from '../utils/requests';
+import * as api from '../services/api';
+import { useAppData } from '../state/AppDataProvider';
 import { colors, hairline, radius, spacing, stroke, typography } from '../theme';
+
+/** "Good Morning ✨" / "Good Afternoon ✨" / "Good Evening ✨". */
+function greetingFor(now: Date): string {
+  const hour = now.getHours();
+  if (hour < 12) return 'Good Morning ✨';
+  if (hour < 17) return 'Good Afternoon ✨';
+  return 'Good Evening ✨';
+}
+
+/** "Numerology , Tarot" -> ["Numerology", "Tarot"]. */
+const splitList = (value?: string) =>
+  (value ?? '')
+    .split(',')
+    .map(part => part.trim())
+    .filter(Boolean);
 
 const AVATAR_SIZE = 47.998;
 const AVATAR_BADGE_SIZE = 15.999;
@@ -75,30 +84,79 @@ export function DashboardScreen({
   onLogout,
 }: DashboardScreenProps) {
   const insets = useSafeAreaInsets();
-  const [online, setOnline] = useState(true);
+  const { profile } = useAppData();
+
+  /** Everything the screen prints, in one call. */
+  const dashboard = useApi(() => api.fetchDashboard(), []);
+  /** The queue behind the incoming-request popup. */
+  const requestQueue = useApi(() => api.fetchRequests(), []);
+
+  /**
+   * The availability toggle. `undefined` means "not touched yet", which falls
+   * back to whatever the server says — the dashboard arrives a moment after
+   * mount, so a plain initial value would fix it to the wrong state.
+   */
+  const [chosenOnline, setChosenOnline] = useState<boolean | undefined>(undefined);
+  const online = chosenOnline ?? dashboard.data?.isOnline ?? false;
+
   /** Whether the header avatar's dropdown is showing. */
   const [profileOpen, setProfileOpen] = useState(false);
-  const [services, setServices] = useState<ServiceRow[]>([...SERVICES]);
-  const [requests, setRequests] = useState<ConsultationRequest[]>([
-    ...PENDING_REQUESTS,
-  ]);
   /** The request whose details are open in the popup. */
   const [reviewing, setReviewing] = useState<ConsultationRequest | null>(null);
 
-  const toggleService = (id: ServiceRow['id'], enabled: boolean) =>
-    setServices(current =>
-      current.map(row => (row.id === id ? { ...row, enabled } : row)),
-    );
+  const earnings = dashboard.data?.earnings;
+  const performance = dashboard.data?.performance;
+
+  /** The API's services, in the shape the card draws. */
+  const services: ServiceRow[] = (dashboard.data?.services ?? []).map(service => ({
+    id: service.type as ServiceRow['id'],
+    label: service.type === 'call' ? 'Call' : service.type === 'chat' ? 'Chat' : service.type,
+    rate: String(service.effectiveRate ?? service.ratePerMinute),
+    time: '',
+    enabled: service.isEnabled,
+  }));
+
+  /** The queue, in the shape the request card draws. */
+  const requests = requestsFromApi(requestQueue.data ?? []);
+
+  /** Turning availability on or off is written straight through to the server. */
+  const changeOnline = async (next: boolean) => {
+    setChosenOnline(next);
+    try {
+      await api.setOnline(next);
+    } catch {
+      /** Put the switch back if the server refused. */
+      setChosenOnline(!next);
+    }
+  };
+
+  const toggleService = async (id: ServiceRow['id'], enabled: boolean) => {
+    try {
+      await api.setServiceEnabled(String(id), enabled);
+      await dashboard.reload();
+    } catch {
+      /** The card re-reads from the server, so a refusal simply undoes itself. */
+      await dashboard.reload();
+    }
+  };
 
   /**
    * Either button on a request card opens the full brief rather than answering
    * straight away; the popup's own buttons are what settle it.
    */
-  const answer = (request: ConsultationRequest, accepted: boolean) => {
+  const answer = async (request: ConsultationRequest, accepted: boolean) => {
     setReviewing(null);
-    setRequests(current => current.filter(item => item.id !== request.id));
-    if (accepted) {
-      onAcceptRequest?.(request);
+
+    try {
+      if (accepted) {
+        await api.acceptRequest(request.id);
+        onAcceptRequest?.(request);
+      } else {
+        await api.rejectRequest(request.id, 'Declined');
+      }
+    } finally {
+      await requestQueue.reload();
+      await dashboard.reload();
     }
   };
 
@@ -130,11 +188,13 @@ export function DashboardScreen({
       <View style={[styles.header, { paddingTop: insets.top + 1 }]}>
         <View style={styles.headerRow}>
           <View style={styles.greetingColumn}>
-            <Text style={styles.greeting}>{ASTROLOGER.greeting}</Text>
-            <Text style={styles.name}>{ASTROLOGER.name}</Text>
+            <Text style={styles.greeting}>{greetingFor(new Date())}</Text>
+            <Text style={styles.name}>
+              {dashboard.data?.name || profile.fullName || 'Astrologer'}
+            </Text>
           </View>
 
-          <AvailabilityToggle online={online} onChange={setOnline} />
+          <AvailabilityToggle online={online} onChange={changeOnline} />
 
           <Pressable
             accessibilityRole="button"
@@ -144,7 +204,7 @@ export function DashboardScreen({
             style={({ pressed }) => pressed && styles.pressed}
           >
             <Image
-              accessibilityLabel={ASTROLOGER.name}
+              accessibilityLabel={dashboard.data?.name || profile.fullName || 'Profile'}
               source={require('../assets/images/astrologer-avatar.jpg')}
               style={styles.avatar}
             />
@@ -170,9 +230,9 @@ export function DashboardScreen({
             badgeColor={colors.status.successBadge}
             badgeLabelColor={colors.status.success}
             badge="LIVE"
-            value={EARNINGS.today}
+            value={`₹${(earnings?.today ?? 0).toLocaleString('en-IN')}`}
             caption="Today's Earnings"
-            footnote={EARNINGS.todayTrend}
+            footnote={`₹${(earnings?.thisMonth ?? 0).toLocaleString('en-IN')} this month`}
             footnoteColor={colors.status.success}
           />
           <StatCard
@@ -181,7 +241,7 @@ export function DashboardScreen({
             badgeColor="rgba(240, 223, 32, 0.12)"
             badgeLabelColor={colors.text.ink}
             badge="LIVE"
-            value={EARNINGS.walletBalance}
+            value={`₹${(earnings?.balance ?? 0).toLocaleString('en-IN')}`}
             caption="Wallet Balance"
             footnote="Tap to withdraw"
             footnoteColor={colors.text.ink}
@@ -189,19 +249,26 @@ export function DashboardScreen({
           />
         </View>
 
-        <PerformanceCard stats={PERFORMANCE} onViewAll={onViewPerformance} />
+        <PerformanceCard
+          stats={{
+            consultations: performance?.consultationsToday ?? 0,
+            rating: performance?.rating ?? 0,
+            acceptance: performance?.acceptance ?? 0,
+          }}
+          onViewAll={onViewPerformance}
+        />
 
         <ServicesCard rows={services} onToggle={toggleService} />
 
         <ExpertiseCard
           title="My Expertise in Life Aspects"
-          items={LIFE_ASPECTS}
+          items={splitList(profile.skill)}
           onEdit={onEditLifeAspects}
         />
 
         <ExpertiseCard
           title="My Expertise in Skills"
-          items={SKILLS}
+          items={splitList(profile.language)}
           onEdit={onEditSkills}
         />
 
@@ -209,7 +276,7 @@ export function DashboardScreen({
           <View style={styles.requestsHeader}>
             <Text style={styles.sectionTitle}>Pending Requests</Text>
             <View style={styles.countBadge}>
-              <Text style={styles.countLabel}>{PENDING_COUNT} New</Text>
+              <Text style={styles.countLabel}>{requests.length} New</Text>
             </View>
           </View>
 

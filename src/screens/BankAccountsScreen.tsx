@@ -122,8 +122,8 @@ export function BankAccountsScreen({ onBack }: BankAccountsScreenProps) {
         visible={sheet?.kind === 'add'}
         error={sheet?.kind === 'add' ? error : null}
         onDismiss={close}
-        onSubmit={async (draft, proofFileName) => {
-          const filed = await addBankAccount(draft, proofFileName);
+        onSubmit={async (draft, proof) => {
+          const filed = await addBankAccount(draft, proof);
           if (filed) {
             setSheet(null);
           }

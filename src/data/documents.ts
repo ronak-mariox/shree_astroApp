@@ -37,38 +37,6 @@ export const DOCUMENT_TYPES: ReadonlyArray<string> = [
 /** Figma opens the sheet with the first type already picked. */
 export const DEFAULT_DOCUMENT_TYPE = DOCUMENT_TYPES[0];
 
-/** The scans already on file (Figma frames 110:7102, 110:7154, 110:7180). */
-export const SEED_DOCUMENTS: ReadonlyArray<UploadedDocument> = [
-  {
-    id: 'id-proof-1',
-    type: 'Id Proof',
-    idNumber: '5445GFDT454',
-    status: 'Pending',
-    fileName: 'id-proof-front.png',
-  },
-  {
-    id: 'id-proof-2',
-    type: 'Id Proof',
-    idNumber: '5445GFDT454',
-    status: 'Pending',
-    fileName: 'id-proof-back.png',
-  },
-  {
-    id: 'pan-1',
-    type: 'PAN Card',
-    idNumber: '5445GFDT454',
-    status: 'Pending',
-    fileName: 'pan-card.png',
-  },
-  {
-    id: 'award-1',
-    type: 'Award',
-    idNumber: '5445GFDT454',
-    status: 'Pending',
-    fileName: 'award.png',
-  },
-];
-
 /**
  * Figma titles the three cards "Uploaded ID Proof 1", "Uploaded PAN Proof" and
  * "Uploaded Award Proof" — the type, wrapped in "Uploaded … Proof".

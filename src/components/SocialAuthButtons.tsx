@@ -20,7 +20,6 @@ type SocialAuthButtonsProps = {
  */
 export function SocialAuthButtons({
   onGoogle,
-  onFacebook,
   onApple,
 }: SocialAuthButtonsProps) {
   return (
@@ -29,10 +28,7 @@ export function SocialAuthButtons({
         <Text style={[styles.glyph, styles.google]}>G</Text>
       </SocialButton>
 
-      <SocialButton label="Continue with Facebook" onPress={onFacebook}>
-        <Text style={[styles.glyph, styles.facebook]}>f</Text>
-      </SocialButton>
-
+    
       <SocialButton label="Continue with Apple" onPress={onApple}>
         <AppleIcon size={APPLE_ICON_SIZE} />
       </SocialButton>

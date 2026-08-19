@@ -1,10 +1,11 @@
+import { NOTIFICATIONS } from './helpers/fixtures';
 import React from 'react';
 import ReactTestRenderer from 'react-test-renderer';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import App from '../App';
 import { NotificationCard } from '../src/components/NotificationCard';
-import { NOTIFICATIONS } from '../src/data/notifications';
+
 import { DashboardScreen } from '../src/screens/DashboardScreen';
 import { LoginScreen } from '../src/screens/LoginScreen';
 import { NotificationsScreen } from '../src/screens/NotificationsScreen';

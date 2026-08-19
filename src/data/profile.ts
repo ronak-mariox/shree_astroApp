@@ -23,26 +23,6 @@ export type AstrologerProfile = {
   photoFileName?: string;
 };
 
-/**
- * What the record holds before anything is edited. Figma prints these on the
- * read screen (nodes 110:6297 – 110:6332); the edit screen's own mock values
- * are its placeholders, so the record wins there.
- */
-export const SEED_PROFILE: AstrologerProfile = {
-  astroCode: '2024031009',
-  fullName: 'Astro Mohan',
-  email: 'mohanram123@gmail.com',
-  primaryMobile: '95356 54856',
-  secondaryMobile: '6498796543',
-  gender: 'Female',
-  dob: 'April 10, 2001',
-  language: 'English',
-  experience: '2 years',
-  skill: 'Numerology , FaceReading , Nadi Vedic , Tarot',
-  about:
-    "Lorem Ipsum is simply dummy text of the printing and typesetting industry. Lorem Ipsum has been the industry's standard dummy text ever since the 1500s, when an unknown printer took a galley of type and scrambled it to make a type specimen book.",
-};
-
 /** One row of the personal-information list — a label and its value. */
 export type ProfileRow = {
   label: string;

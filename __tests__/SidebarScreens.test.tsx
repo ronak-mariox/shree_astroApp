@@ -1,14 +1,15 @@
 import React from 'react';
 
+import { FIXTURE_SERVICE_RATES , FIXTURE_REVIEWS } from './helpers/fixtures';
+
 import { OptionPickerSheet } from '../src/components/OptionPickerSheet';
 import { PriceChangeSheet } from '../src/components/PriceChangeSheet';
 import { ReviewReplySheet } from '../src/components/ReviewReplySheet';
 import {
   CHANGE_REQUEST_INTRO,
-  SEED_SERVICE_RATES,
   rateRowsOf,
 } from '../src/data/priceChange';
-import { REVIEWS_NOTICE, SEED_REVIEWS } from '../src/data/reviews';
+import { REVIEWS_NOTICE } from '../src/data/reviews';
 import { FAQS, ISSUE_TYPES } from '../src/data/support';
 import { HelpSupportScreen } from '../src/screens/HelpSupportScreen';
 import { MyReviewsScreen } from '../src/screens/MyReviewsScreen';
@@ -120,12 +121,12 @@ test('change request opens on the first service with its rates showing', async (
   expect(text).toContain('Change Request');
   expect(text).toContain(CHANGE_REQUEST_INTRO);
 
-  for (const service of SEED_SERVICE_RATES) {
+  for (const service of FIXTURE_SERVICE_RATES) {
     expect(text).toContain(service.name);
   }
 
   // Only the first panel is open, so only its rows are drawn.
-  for (const row of rateRowsOf(SEED_SERVICE_RATES[0])) {
+  for (const row of rateRowsOf(FIXTURE_SERVICE_RATES[0])) {
     expect(text).toContain(row.label);
   }
   expect(text).toContain('Request New Rate');
@@ -198,7 +199,7 @@ test('my reviews prints the notice, the filters and every review', async () => {
     'Search Here...',
   );
 
-  for (const review of SEED_REVIEWS) {
+  for (const review of FIXTURE_REVIEWS) {
     expect(text).toContain(review.reviewer);
     expect(text).toContain(review.orderId);
     expect(text).toContain(review.comment);

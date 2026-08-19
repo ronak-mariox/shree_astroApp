@@ -1,0 +1,377 @@
+/**
+ * A stand-in for services/api.ts, for the screen tests.
+ *
+ * The real one talks to a server, which a screen test has no business doing.
+ * This keeps an in-memory store with the same shapes, so every test exercises
+ * the actual screens and the actual provider — only the network is replaced.
+ *
+ * `resetApiMock()` puts the store back between tests.
+ */
+
+import type { BankAccount, BankAccountDraft, BankTransaction } from '../../src/data/bank';
+import type { UploadedDocument } from '../../src/data/documents';
+import type { PriceChangeDraft, ServiceRate } from '../../src/data/priceChange';
+import type { AstrologerProfile } from '../../src/data/profile';
+import type { Review } from '../../src/data/reviews';
+import type { Dispute } from '../../src/data/support';
+import {
+  CHAT_PEER,
+  CHAT_TRANSCRIPT,
+  FIXTURE_BANK_ACCOUNTS,
+  FIXTURE_DOCUMENTS,
+  FIXTURE_PROFILE,
+  FIXTURE_REVIEWS,
+  FIXTURE_SERVICE_RATES,
+  FIXTURE_TRANSACTIONS,
+  HISTORY_ENTRIES,
+  HISTORY_TOTAL,
+  MISSED_CALLS,
+  NOTIFICATIONS,
+  PAYOUT_ACCOUNT,
+  TRANSACTIONS,
+  WALLET_BALANCE,
+} from './fixtures';
+
+/** The two requests the dashboard tests answer and decline. */
+const FIXTURE_REQUESTS = [
+  {
+    chatId: 'chat-priya',
+    channel: 'chat',
+    user: { id: 'u-1', name: 'Priya Mehta' },
+    intake: {
+      topic: 'marriage',
+      question: 'Marriage timing',
+      minutesBooked: 10,
+      birthDetails: {
+        dateOfBirth: '1996-05-14T00:00:00.000Z',
+        place: { formatted: 'Pune, Maharashtra' },
+      },
+    },
+    ratePerMinute: 20,
+    requestedAt: new Date().toISOString(),
+  },
+  {
+    chatId: 'chat-arjun',
+    channel: 'call',
+    user: { id: 'u-2', name: 'Arjun Rao' },
+    intake: { topic: 'career-job', question: 'Career & job change', minutesBooked: 15 },
+    ratePerMinute: 30,
+    requestedAt: new Date().toISOString(),
+  },
+];
+
+/** The services the dashboard switches on and off. */
+const FIXTURE_SERVICES = [
+  { type: 'call', isEnabled: false, ratePerMinute: 10, effectiveRate: 10, freeMinutes: 0 },
+  { type: 'chat', isEnabled: false, ratePerMinute: 10, effectiveRate: 10, freeMinutes: 0 },
+];
+
+const store = {
+  profile: { ...FIXTURE_PROFILE } as AstrologerProfile,
+  requests: FIXTURE_REQUESTS.map(r => ({ ...r })),
+  services: FIXTURE_SERVICES.map(s => ({ ...s })),
+  isOnline: true,
+  bankAccounts: [...FIXTURE_BANK_ACCOUNTS] as BankAccount[],
+  transactions: [...FIXTURE_TRANSACTIONS] as BankTransaction[],
+  documents: [...FIXTURE_DOCUMENTS] as UploadedDocument[],
+  serviceRates: [...FIXTURE_SERVICE_RATES] as ServiceRate[],
+  reviews: [...FIXTURE_REVIEWS] as Review[],
+};
+
+let nextId = 1;
+const mintId = (prefix: string) => `${prefix}-${nextId++}`;
+
+export function resetApiMock() {
+  store.profile = { ...FIXTURE_PROFILE };
+  store.bankAccounts = [...FIXTURE_BANK_ACCOUNTS];
+  store.transactions = [...FIXTURE_TRANSACTIONS];
+  store.documents = [...FIXTURE_DOCUMENTS];
+  store.serviceRates = [...FIXTURE_SERVICE_RATES];
+  store.reviews = [...FIXTURE_REVIEWS];
+  store.requests = FIXTURE_REQUESTS.map(r => ({ ...r }));
+  store.services = FIXTURE_SERVICES.map(s => ({ ...s }));
+  store.isOnline = true;
+  posted = [];
+  nextId = 1;
+}
+
+const today = () =>
+  new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+
+/* ------------------------------------------------------------------ profile */
+
+export const fetchProfile = async () => ({ ...store.profile });
+
+export const saveProfile = async (profile: AstrologerProfile) => {
+  store.profile = { ...profile };
+  return { ...store.profile };
+};
+
+export const uploadProfilePhoto = async (file: { name?: string } | string) => {
+  store.profile = {
+    ...store.profile,
+    photoFileName: typeof file === 'string' ? file : file.name,
+  };
+  return { ...store.profile };
+};
+
+/* --------------------------------------------------------------------- bank */
+
+export const fetchBankAccounts = async () => store.bankAccounts.map(a => ({ ...a }));
+
+export const addBankAccount = async (
+  draft: BankAccountDraft,
+  proof?: { name?: string },
+) => {
+  const { validateBankAccount } = require('../../src/data/bank');
+  const problem = validateBankAccount(draft);
+  if (problem) {
+    throw new Error(problem);
+  }
+
+  const account: BankAccount = {
+    id: mintId('account'),
+    holderName: draft.holderName,
+    bankName: draft.bankName,
+    accountNumber: draft.accountNumber,
+    ifsc: draft.ifsc,
+    createdDate: today(),
+    status: 'Pending',
+    proofFileName: proof?.name,
+  };
+  store.bankAccounts = [...store.bankAccounts, account];
+  return { ...account };
+};
+
+export const fetchTransactions = async () => store.transactions.map(t => ({ ...t }));
+
+/* ---------------------------------------------------------------- documents */
+
+export const fetchDocuments = async () => store.documents.map(d => ({ ...d }));
+
+export const uploadDocument = async (input: {
+  type: string;
+  idNumber: string;
+  file?: { name?: string };
+}) => {
+  if (!input.idNumber.trim()) {
+    throw new Error('Enter the number this document is filed against.');
+  }
+  if (!input.file?.name) {
+    throw new Error('Pick a file to upload.');
+  }
+
+  const document: UploadedDocument = {
+    id: mintId('document'),
+    type: input.type,
+    idNumber: input.idNumber,
+    status: 'Pending',
+    fileName: input.file.name,
+  };
+  store.documents = [...store.documents, document];
+  return { ...document };
+};
+
+export const replaceDocument = async (id: string, file: { name?: string }) => {
+  const existing = store.documents.find(d => d.id === id);
+  if (!existing) {
+    throw new Error('That document is no longer on file.');
+  }
+  const updated = { ...existing, fileName: file.name ?? '', status: 'Pending' };
+  store.documents = store.documents.map(d => (d.id === id ? updated : d));
+  return { ...updated };
+};
+
+export const deleteDocument = async (id: string) => {
+  store.documents = store.documents.filter(d => d.id !== id);
+};
+
+/* ------------------------------------------------------------------ support */
+
+export const submitDispute = async (dispute: Dispute) => {
+  const { validateDispute } = require('../../src/data/support');
+  const problem = validateDispute(dispute);
+  if (problem) {
+    throw new Error(problem);
+  }
+};
+
+/* ------------------------------------------------------------------- rates */
+
+export const fetchServiceRates = async () => store.serviceRates.map(r => ({ ...r }));
+
+export const requestPriceChange = async (draft: PriceChangeDraft) => {
+  const { validatePriceChange } = require('../../src/data/priceChange');
+  const problem = validatePriceChange(draft);
+  if (problem) {
+    throw new Error(problem);
+  }
+
+  const existing = store.serviceRates.find(
+    rate => rate.name.toLowerCase() === draft.service.trim().toLowerCase(),
+  );
+  if (!existing) {
+    throw new Error(`There is no "${draft.service}" service to reprice.`);
+  }
+
+  const amount = draft.newPrice.replace(/[^0-9.]/g, '');
+  const updated: ServiceRate = {
+    ...existing,
+    newRequestedRate: `₹ ${amount}`,
+    requestDate: today(),
+    status: 'Pending',
+  };
+  store.serviceRates = store.serviceRates.map(r => (r.id === existing.id ? updated : r));
+  return { ...updated };
+};
+
+export const setOpeningRates = async () => store.serviceRates.map(r => ({ ...r }));
+
+/* ----------------------------------------------------------------- reviews */
+
+export const fetchReviews = async () => store.reviews.map(r => ({ ...r }));
+
+const updateReview = (id: string, change: (review: Review) => Review): Review => {
+  const existing = store.reviews.find(review => review.id === id);
+  if (!existing) {
+    throw new Error('That review is no longer listed.');
+  }
+  const updated = change(existing);
+  store.reviews = store.reviews.map(review => (review.id === id ? updated : review));
+  return { ...updated };
+};
+
+export const replyToReview = async (id: string, message: string, author: string) => {
+  if (!message.trim()) {
+    throw new Error('Write a reply before sending it.');
+  }
+  return updateReview(id, review => ({
+    ...review,
+    reply: { author, message: message.trim() },
+  }));
+};
+
+export const toggleReviewFlag = async (id: string) =>
+  updateReview(id, review => ({ ...review, flagged: !review.flagged }));
+
+export const toggleReviewPin = async (id: string) =>
+  updateReview(id, review => ({ ...review, pinned: !review.pinned }));
+
+/* --------------------------------------------------------------- dashboard */
+
+export const fetchDashboard = async () => ({
+  name: 'Pt. Rajesh',
+  isOnline: store.isOnline,
+  earnings: { today: 2840, balance: 18520, thisMonth: 42350, lifetime: 320000 },
+  performance: {
+    consultationsToday: 12,
+    consultationsTotal: 480,
+    rating: 4.9,
+    acceptance: 94,
+  },
+  services: store.services.map(s => ({ ...s })),
+  pendingRequests: store.requests.length,
+  missing: [],
+  applicationStatus: 'approved',
+});
+
+export const setOnline = async (isOnline: boolean) => {
+  store.isOnline = isOnline;
+  return isOnline;
+};
+
+export const setServiceEnabled = async (type: string, isEnabled: boolean) => {
+  store.services = store.services.map(service =>
+    service.type === type ? { ...service, isEnabled } : service,
+  );
+};
+
+export const fetchRequests = async () => store.requests.map(r => ({ ...r }));
+
+/** Answering a request takes it out of the queue, as the server would. */
+const settleRequest = (chatId: string) => {
+  store.requests = store.requests.filter(request => request.chatId !== chatId);
+  return {};
+};
+
+export const acceptRequest = async (chatId: string) => settleRequest(chatId);
+export const rejectRequest = async (chatId: string) => settleRequest(chatId);
+export const endConsultation = async () => ({});
+/** Only the missed list is asked for by a screen; everything else is empty. */
+export const fetchConsultations = async (status?: string) =>
+  status === 'missed'
+    ? MISSED_CALLS.map(call => ({
+        id: call.id,
+        channel: call.channel === 'voice' ? 'call' : 'chat',
+        with: { id: call.id, name: call.name },
+        topic: call.topic,
+        createdAt: new Date().toISOString(),
+      }))
+    : [];
+
+/** The transcript, in the shape the API answers with. */
+/** Messages sent during a test, appended to the transcript like a server. */
+let posted: any[] = [];
+
+export const fetchMessages = async () => [
+  ...CHAT_TRANSCRIPT.map((bubble, index) => ({
+    id: bubble.id,
+    senderRole: bubble.from === 'astrologer' ? 'astrologer' : 'user',
+    type: 'text',
+    content: { text: bubble.lines.join(' ') },
+    /** The fixture's quoted bubble answers the one before it. */
+    replyTo: bubble.quote ? CHAT_TRANSCRIPT[index - 1]?.id : undefined,
+    isIntake: Boolean(bubble.action),
+    seq: index + 1,
+    createdAt: new Date().toISOString(),
+  })),
+  ...posted,
+];
+
+export const sendMessage = async (_chatId: string, text: string) => {
+  const message = {
+    id: `sent-${posted.length + 1}`,
+    senderRole: 'astrologer',
+    type: 'text',
+    content: { text },
+    seq: CHAT_TRANSCRIPT.length + posted.length + 1,
+    createdAt: new Date().toISOString(),
+  };
+  posted = [...posted, message];
+  return message;
+};
+
+export const fetchEarnings = async () => ({
+  balance: 18520,
+  today: 2840,
+  thisMonth: 42350,
+  lifetime: 320000,
+});
+
+export const requestWithdrawal = async () => ({});
+export const fetchWithdrawals = async () => [];
+export const fetchNotifications = async () => ({
+  items: NOTIFICATIONS,
+  total: NOTIFICATIONS.length,
+  unread: NOTIFICATIONS.filter(n => n.unread).length,
+});
+export const markNotificationsRead = async () => ({ updated: 1, unread: 0 });
+
+/* -------------------------------------------------------- screen-shaped */
+
+export const fetchWallet = async () => ({
+  balance: { ...WALLET_BALANCE },
+  transactions: TRANSACTIONS.map(t => ({ ...t })),
+});
+
+export const fetchHistory = async () => ({
+  total: HISTORY_TOTAL,
+  entries: HISTORY_ENTRIES.map(entry => ({ ...entry })),
+});
+
+export const fetchNotificationFeed = async () => NOTIFICATIONS.map(n => ({ ...n }));
+
+/** The withdraw screen reads the primary account off the bank list. */
+export const fetchPayoutAccount = async () => ({ ...PAYOUT_ACCOUNT });
+export { CHAT_PEER };
+export const submitApplication = async () => ({ applicationStatus: 'under_review' });

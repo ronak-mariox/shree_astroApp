@@ -175,7 +175,6 @@ test('login renders the header, field and every social option', async () => {
     );
   expect(socials.map(node => node.props.accessibilityLabel)).toEqual([
     'Continue with Google',
-    'Continue with Facebook',
     'Continue with Apple',
   ]);
 });
@@ -204,7 +203,8 @@ test('login arms Send OTP only once the number is ten digits', async () => {
   await ReactTestRenderer.act(() => {
     cta().props.onPress();
   });
-  expect(onSendOtp).toHaveBeenCalledWith('9876543210');
+  /** The screen also passes the dev code through, which is undefined here. */
+  expect(onSendOtp).toHaveBeenCalledWith('9876543210', undefined);
 });
 
 test('otp screen renders the code destination, countdown and advisory', async () => {

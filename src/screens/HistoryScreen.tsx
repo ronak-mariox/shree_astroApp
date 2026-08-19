@@ -13,7 +13,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { HistoryCard } from '../components/HistoryCard';
 import { ChevronSolidIcon } from '../components/icons/ChatIcons';
 import { SearchIcon } from '../components/icons/SearchIcon';
-import { HISTORY_ENTRIES, HISTORY_TOTAL } from '../data/history';
+import { useApi } from '../hooks/useApi';
+import { fetchHistory } from '../services/api';
 import { colors, radius, spacing, typography } from '../theme';
 
 const CHEVRON_WIDTH = 7.36;
@@ -50,7 +51,10 @@ export function HistoryScreen({ variant, onBack }: HistoryScreenProps) {
   const insets = useSafeAreaInsets();
   const [query, setQuery] = useState('');
 
-  const entries = HISTORY_ENTRIES.filter(entry =>
+  /** Reloads whenever the tab switches between chat and call. */
+  const history = useApi(() => fetchHistory(variant), [variant]);
+
+  const entries = (history.data?.entries ?? []).filter(entry =>
     entry.userName.toLowerCase().includes(query.trim().toLowerCase()),
   );
 
@@ -95,7 +99,7 @@ export function HistoryScreen({ variant, onBack }: HistoryScreenProps) {
 
       <ScrollView contentContainerStyle={styles.content}>
         <View style={styles.total}>
-          <Text style={styles.totalAmount}>₹ {HISTORY_TOTAL}</Text>
+          <Text style={styles.totalAmount}>₹ {history.data?.total ?? '0'}</Text>
           <Text style={styles.totalCaption}>Total Earnings</Text>
         </View>
 

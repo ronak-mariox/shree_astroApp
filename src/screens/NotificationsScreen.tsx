@@ -7,7 +7,8 @@ import {
   NotificationCard,
   type Notification,
 } from '../components/NotificationCard';
-import { NOTIFICATIONS } from '../data/notifications';
+import { useApi } from '../hooks/useApi';
+import { fetchNotificationFeed, markNotificationsRead } from '../services/api';
 import { colors, hairline, spacing, typography } from '../theme';
 
 type NotificationsScreenProps = {
@@ -30,16 +31,23 @@ export function NotificationsScreen({
   onSelectTab,
 }: NotificationsScreenProps) {
   const insets = useSafeAreaInsets();
-  const [notifications, setNotifications] = useState<Notification[]>([
-    ...NOTIFICATIONS,
-  ]);
+  const feed = useApi(() => fetchNotificationFeed(), []);
+
+  /** Rows marked read here, so the badge clears before the server answers. */
+  const [readIds, setReadIds] = useState<string[]>([]);
+
+  const notifications: Notification[] = ((feed.data ?? []) as Notification[]).map(item =>
+    readIds.includes(item.id) ? { ...item, unread: false } : item,
+  );
 
   const unread = notifications.filter(item => item.unread).length;
 
-  const read = (id: string) =>
-    setNotifications(current =>
-      current.map(item => (item.id === id ? { ...item, unread: false } : item)),
-    );
+  const read = (id: string) => {
+    setReadIds(current => (current.includes(id) ? current : [...current, id]));
+    /** Fire and forget: the badge has already moved, and a failure is not worth
+        interrupting the screen for. */
+    markNotificationsRead(id).catch(() => {});
+  };
 
   return (
     <View style={styles.screen}>

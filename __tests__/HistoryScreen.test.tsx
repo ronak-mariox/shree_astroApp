@@ -1,3 +1,4 @@
+import { HISTORY_ENTRIES, HISTORY_TOTAL } from './helpers/fixtures';
 import React from 'react';
 import { TextInput } from 'react-native';
 import ReactTestRenderer from 'react-test-renderer';
@@ -6,7 +7,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import App from '../App';
 import { HistoryCard } from '../src/components/HistoryCard';
 import { MenuSidebar } from '../src/components/MenuSidebar';
-import { HISTORY_ENTRIES, HISTORY_TOTAL } from '../src/data/history';
+
 import { MENU_ITEMS } from '../src/data/menu';
 import { AstrologerWelcomeScreen } from '../src/screens/AstrologerWelcomeScreen';
 import { DashboardScreen } from '../src/screens/DashboardScreen';
