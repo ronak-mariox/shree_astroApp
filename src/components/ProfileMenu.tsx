@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import {
@@ -7,6 +7,7 @@ import {
   LogoutIcon,
   ViewProfileIcon,
 } from './icons/ProfileMenuIcons';
+import { useResponsive } from '../hooks/useResponsive';
 import { colors, radius, spacing, typography } from '../theme';
 
 /** The card Figma draws at 128 × 146, on 16pt of padding and a 14pt gap. */
@@ -55,6 +56,9 @@ export function ProfileMenu({
   top,
   right = spacing.lg,
 }: ProfileMenuProps) {
+  const { px } = useResponsive();
+  const styles = useMemo(() => createStyles(px), [px]);
+
   return (
     <Modal
       visible={visible}
@@ -91,40 +95,42 @@ export function ProfileMenu({
   );
 }
 
-const styles = StyleSheet.create({
-  scrim: {
-    flex: 1,
-  },
-  card: {
-    position: 'absolute',
-    width: CARD_WIDTH,
-    padding: spacing.section,
-    gap: 14,
-    borderRadius: radius.input,
-    backgroundColor: colors.surface,
-    // Figma leaves the card flat; a soft lift is added here so it still reads
-    // as floating where it overlaps the white header.
-    shadowColor: colors.shadow,
-    shadowOpacity: 0.12,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 6,
-  },
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    height: ROW_HEIGHT,
-  },
-  rowIcon: {
-    width: ICON_COLUMN,
-    alignItems: 'flex-start',
-    justifyContent: 'center',
-  },
-  rowLabel: {
-    ...typography.dropdownLabel,
-    color: colors.text.dropdown,
-  },
-  pressed: {
-    opacity: 0.6,
-  },
-});
+function createStyles(px: (value: number) => number) {
+  return StyleSheet.create({
+    scrim: {
+      flex: 1,
+    },
+    card: {
+      position: 'absolute',
+      width: px(CARD_WIDTH),
+      padding: spacing.section,
+      gap: 14,
+      borderRadius: radius.input,
+      backgroundColor: colors.surface,
+      // Figma leaves the card flat; a soft lift is added here so it still reads
+      // as floating where it overlaps the white header.
+      shadowColor: colors.shadow,
+      shadowOpacity: 0.12,
+      shadowRadius: 12,
+      shadowOffset: { width: 0, height: 4 },
+      elevation: 6,
+    },
+    row: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      height: px(ROW_HEIGHT),
+    },
+    rowIcon: {
+      width: px(ICON_COLUMN),
+      alignItems: 'flex-start',
+      justifyContent: 'center',
+    },
+    rowLabel: {
+      ...typography.dropdownLabel,
+      color: colors.text.dropdown,
+    },
+    pressed: {
+      opacity: 0.6,
+    },
+  });
+}

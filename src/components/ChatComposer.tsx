@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import {
   Pressable,
   StyleSheet,
@@ -8,11 +8,11 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { BrandGradient } from './BrandGradient';
-import { MicIcon, PaperclipIcon, SendIcon } from './icons/ChatIcons';
+import { SendIcon } from './icons/ChatIcons';
+import { useResponsive } from '../hooks/useResponsive';
 import { colors, radius, spacing, typography } from '../theme';
 
 const FIELD_HEIGHT = 63;
-const ROUND_BUTTON = 36;
 const SEND_SIZE = 52;
 const ICON_SIZE = 20;
 /** The composer bar is 83pt tall on the 375pt frame (Figma node 110:504). */
@@ -22,22 +22,24 @@ type ChatComposerProps = {
   value: string;
   onChangeText: (value: string) => void;
   onSend: () => void;
-  onAttach?: () => void;
-  onRecord?: () => void;
+  /** True while the session's billing is paused (the seeker's balance ran out) — there's nothing to say to someone who can't hear it. */
+  disabled?: boolean;
 };
 
 /**
- * The message composer: an attach button, the field, a mic, and the gradient
- * send button beside it (Figma nodes 110:504 – 110:518).
+ * The message composer: the field and the gradient send button beside it
+ * (Figma nodes 110:504 – 110:518) — no attach, voice note, or emoji controls,
+ * none of which the astrologer's side of a consultation uses.
  */
 export function ChatComposer({
   value,
   onChangeText,
   onSend,
-  onAttach,
-  onRecord,
+  disabled = false,
 }: ChatComposerProps) {
   const insets = useSafeAreaInsets();
+  const { contentWidth, isTablet } = useResponsive();
+  const styles = useMemo(() => createStyles(contentWidth, isTablet), [contentWidth, isTablet]);
 
   return (
     <View
@@ -47,15 +49,6 @@ export function ChatComposer({
       ]}
     >
       <View style={styles.field}>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Attach a file"
-          onPress={onAttach}
-          style={({ pressed }) => [styles.roundButton, pressed && styles.pressed]}
-        >
-          <PaperclipIcon />
-        </Pressable>
-
         <TextInput
           accessibilityLabel="Message"
           value={value}
@@ -65,21 +58,15 @@ export function ChatComposer({
           style={styles.input}
           onSubmitEditing={onSend}
           returnKeyType="send"
+          editable={!disabled}
         />
-
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Record a voice note"
-          onPress={onRecord}
-          style={({ pressed }) => [styles.roundButton, pressed && styles.pressed]}
-        >
-          <MicIcon size={ICON_SIZE} />
-        </Pressable>
       </View>
 
       <Pressable
         accessibilityRole="button"
         accessibilityLabel="Send"
+        accessibilityState={{ disabled }}
+        disabled={disabled}
         onPress={onSend}
         style={({ pressed }) => [styles.send, pressed && styles.pressed]}
       >
@@ -90,8 +77,12 @@ export function ChatComposer({
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(contentWidth: number, isTablet: boolean) {
+  return StyleSheet.create({
   bar: {
+    alignSelf: 'center',
+    width: '100%',
+    maxWidth: isTablet ? contentWidth : undefined,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -112,13 +103,6 @@ const styles = StyleSheet.create({
     borderColor: colors.border.composer,
     backgroundColor: colors.surface,
   },
-  roundButton: {
-    width: ROUND_BUTTON,
-    height: ROUND_BUTTON,
-    borderRadius: ROUND_BUTTON / 2,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
   pressed: {
     opacity: 0.6,
   },
@@ -136,4 +120,5 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     overflow: 'hidden',
   },
-});
+  });
+}

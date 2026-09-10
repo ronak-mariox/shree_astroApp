@@ -20,6 +20,8 @@ import { BankDetailsScreen } from '../src/screens/BankDetailsScreen';
 import { DocumentUploadScreen } from '../src/screens/DocumentUploadScreen';
 import { PersonalInfoScreen } from '../src/screens/PersonalInfoScreen';
 import { ProfessionalDetailsScreen } from '../src/screens/ProfessionalDetailsScreen';
+import * as api from '../src/services/api';
+import { register } from '../src/services/auth';
 
 const METRICS = {
   frame: { x: 0, y: 0, width: 390, height: 844 },
@@ -126,10 +128,19 @@ test('step 1 arms Continue only when every field is answered', async () => {
   });
 });
 
-test('step 2 renders every choice and needs one of each group', async () => {
-  const onContinue = jest.fn();
+test('step 2 renders every choice and registers the account for real', async () => {
+  const onRegistered = jest.fn();
+  const personalInfo = {
+    fullName: 'Pt. Rajesh Sharma',
+    mobile: '9876543210',
+    dateOfBirth: '01/01/1990',
+    gender: 'male',
+  };
   const tree = await render(
-    <ProfessionalDetailsScreen onContinue={onContinue} />,
+    <ProfessionalDetailsScreen
+      personalInfo={personalInfo}
+      onRegistered={onRegistered}
+    />,
   );
 
   const text = textOf(tree);
@@ -143,8 +154,10 @@ test('step 2 renders every choice and needs one of each group', async () => {
   const cta = () => tree.root.findByType(PrimaryButton);
   expect(cta().props.disabled).toBe(true);
 
+  const setOpeningRates = jest.spyOn(api, 'setOpeningRates');
+
   const [specializations, languages] = tree.root.findAllByType(ChipGroup);
-  const [experience, rate] = tree.root.findAllByType(OptionGroup);
+  const [experience, chatRate, callRate] = tree.root.findAllByType(OptionGroup);
 
   await act(() => {
     pressablesWithRole(specializations, 'checkbox')[1].props.onPress();
@@ -157,23 +170,43 @@ test('step 2 renders every choice and needs one of each group', async () => {
   });
   expect(cta().props.disabled).toBe(true);
 
+  // The chat rate alone is not enough — the call rate is asked for too.
   await act(() => {
-    pressablesWithRole(rate, 'radio')[2].props.onPress();
+    pressablesWithRole(chatRate, 'radio')[2].props.onPress();
+  });
+  expect(cta().props.disabled).toBe(true);
+
+  await act(() => {
+    pressablesWithRole(callRate, 'radio')[1].props.onPress();
   });
   expect(cta().props.disabled).toBe(false);
 
-  await act(() => {
-    cta().props.onPress();
+  // The account is opened for real here — register() is the mocked
+  // services/auth call, and this is what maps the chip/option labels
+  // (SPECIALIZATION_IDS/LANGUAGE_IDS/EXPERIENCE_YEARS) into the ids and
+  // number the backend actually wants.
+  await act(async () => {
+    await cta().props.onPress();
   });
-  expect(onContinue).toHaveBeenCalledWith({
-    specializations: ['Numerology'],
-    languages: ['English'],
-    experience: '3-5',
-    rate: '25',
+
+  expect(register).toHaveBeenCalledWith({
+    fullName: 'Pt. Rajesh Sharma',
+    phone: '9876543210',
+    gender: 'male',
+    dateOfBirth: '01/01/1990',
+    languages: ['english'],
+    expertise: ['numerology'],
+    experienceYears: 4,
   });
+  // Both the chat and the call rate picked above land in one call.
+  expect(setOpeningRates).toHaveBeenCalledWith([
+    { type: 'chat', ratePerMinute: 25 },
+    { type: 'call', ratePerMinute: 20 },
+  ]);
+  expect(onRegistered).toHaveBeenCalledTimes(1);
 });
 
-test('step 3 counts uploads and only continues at five of five', async () => {
+test('step 3 uploads each document for real, one tap each, and only continues at five of five', async () => {
   const onContinue = jest.fn();
   const tree = await render(<DocumentUploadScreen onContinue={onContinue} />);
 
@@ -186,8 +219,11 @@ test('step 3 counts uploads and only continues at five of five', async () => {
   expect(cta().props.disabled).toBe(true);
 
   const rows = () => tree.root.findAllByType(UploadRow);
-  await act(() => {
-    rows()[0].props.onUpload();
+
+  // Picking a file (the mocked filePicker resolves immediately) uploads it
+  // straight away — no id number, no separate confirm step.
+  await act(async () => {
+    await rows()[0].props.onUpload();
   });
   expect(textOf(tree)).toContain('1 / 5 uploaded');
   expect(textOf(tree)).toContain('Uploaded successfully');
@@ -195,8 +231,8 @@ test('step 3 counts uploads and only continues at five of five', async () => {
   expect(cta().props.disabled).toBe(true);
 
   for (let index = 1; index < REQUIRED_DOCUMENTS.length; index += 1) {
-    await act(() => {
-      rows()[index].props.onUpload();
+    await act(async () => {
+      await rows()[index].props.onUpload();
     });
   }
 
@@ -206,14 +242,17 @@ test('step 3 counts uploads and only continues at five of five', async () => {
   await act(() => {
     cta().props.onPress();
   });
-  expect(onContinue).toHaveBeenCalledWith(
-    REQUIRED_DOCUMENTS.map(document => document.id),
-  );
+  expect(onContinue).toHaveBeenCalledTimes(1);
 });
 
-test('step 4 needs the account number keyed twice to agree', async () => {
+test('step 4 needs the account number keyed twice to agree, then files it for real', async () => {
   const onSubmit = jest.fn();
-  const tree = await render(<BankDetailsScreen onSubmit={onSubmit} />);
+  const tree = await render(
+    <BankDetailsScreen
+      holderNameDefault="Pt. Rajesh Sharma"
+      onSubmit={onSubmit}
+    />,
+  );
 
   const text = textOf(tree);
   expect(text).toContain('Step 4 of 4');
@@ -225,46 +264,46 @@ test('step 4 needs the account number keyed twice to agree', async () => {
   const input = (index: number) =>
     tree.root.findAllByType(TextField)[index].findByType(TextInput);
 
+  // The holder's name is prefilled from step 1, ahead of the bank fields.
+  expect(input(0).props.value).toBe('Pt. Rajesh Sharma');
+
   // Tapping a quick-select bank fills the name field.
   const banks = pressablesWithRole(tree.root, 'radio');
   await act(() => {
     banks[0].props.onPress();
   });
-  expect(input(0).props.value).toBe('SBI');
-
-  await act(() => {
-    input(1).props.onChangeText('1234567890');
-  });
-  await act(() => {
-    input(3).props.onChangeText('sbin0000123');
-  });
-  expect(input(3).props.value).toBe('SBIN0000123');
-
-  // The confirmation still disagrees, so the CTA stays inert.
-  await act(() => {
-    input(2).props.onChangeText('123456789');
-  });
-  expect(cta().props.disabled).toBe(true);
+  expect(input(1).props.value).toBe('SBI');
 
   await act(() => {
     input(2).props.onChangeText('1234567890');
   });
-  expect(cta().props.disabled).toBe(false);
+  await act(() => {
+    input(4).props.onChangeText('sbin0000123');
+  });
+  expect(input(4).props.value).toBe('SBIN0000123');
+
+  // The confirmation still disagrees, so the CTA stays inert.
+  await act(() => {
+    input(3).props.onChangeText('123456789');
+  });
+  expect(cta().props.disabled).toBe(true);
 
   await act(() => {
-    cta().props.onPress();
+    input(3).props.onChangeText('1234567890');
   });
-  expect(onSubmit).toHaveBeenCalledWith({
-    bankName: 'SBI',
-    accountNumber: '1234567890',
-    ifsc: 'SBIN0000123',
+  expect(cta().props.disabled).toBe(false);
+
+  // Filing the account and submitting the application both happen here.
+  await act(async () => {
+    await cta().props.onPress();
   });
+  expect(onSubmit).toHaveBeenCalledTimes(1);
 });
 
-test('the confirmation screen lists the review stages', async () => {
-  const onBackToHome = jest.fn();
+test('the confirmation screen checks status for real, and only continues once approved', async () => {
+  const onGetStarted = jest.fn();
   const tree = await render(
-    <ApplicationSubmittedScreen onBackToHome={onBackToHome} />,
+    <ApplicationSubmittedScreen onGetStarted={onGetStarted} />,
   );
   const text = textOf(tree);
 
@@ -276,10 +315,39 @@ test('the confirmation screen lists the review stages', async () => {
   }
   // The first stage is done, so the rest print their position.
   expect(text).toContain('2');
-  expect(text).toContain('Back to Home');
+  expect(text).toContain('Check Status');
+
+  // Not approved yet — the mocked profile has no applicationStatus at all,
+  // and Check Status says so rather than silently doing nothing.
+  await act(async () => {
+    await tree.root.findByType(PrimaryButton).props.onPress();
+  });
+  expect(textOf(tree)).toContain('Still under review');
+  expect(onGetStarted).not.toHaveBeenCalled();
+
+  // Now approved — the same Check Status flips every stage and the button.
+  jest.spyOn(api, 'fetchProfile').mockResolvedValueOnce({
+    astroCode: '',
+    fullName: '',
+    email: '',
+    primaryMobile: '',
+    secondaryMobile: '',
+    gender: '',
+    dob: '',
+    language: '',
+    experience: '',
+    skill: '',
+    about: '',
+    applicationStatus: 'approved',
+  });
+  await act(async () => {
+    await tree.root.findByType(PrimaryButton).props.onPress();
+  });
+  expect(textOf(tree)).toContain("You're Approved!");
+  expect(textOf(tree)).toContain('Get Started');
 
   await act(() => {
     tree.root.findByType(PrimaryButton).props.onPress();
   });
-  expect(onBackToHome).toHaveBeenCalledTimes(1);
+  expect(onGetStarted).toHaveBeenCalledTimes(1);
 });

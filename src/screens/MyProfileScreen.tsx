@@ -12,13 +12,10 @@ import {
 import { BrandGradient } from '../components/BrandGradient';
 import { ProfileGalleryCard } from '../components/ProfileGalleryCard';
 import { ProfileHeader } from '../components/ProfileHeader';
-import {
-  PROFILE_GALLERY_COUNT,
-  personalInformationOf,
-  primaryMobileOf,
-} from '../data/profile';
+import { personalInformationOf, primaryMobileOf } from '../data/profile';
 import { useAppData } from '../state/AppDataProvider';
 import { colors, radius, spacing, typography } from '../theme';
+import { photoOf } from '../utils/images';
 
 const AVATAR_SIZE = 66;
 const EDIT_WIDTH = 59;
@@ -36,7 +33,7 @@ type MyProfileScreenProps = {
  * Figma: node 110:6288.
  */
 export function MyProfileScreen({ onBack, onEdit }: MyProfileScreenProps) {
-  const { profile } = useAppData();
+  const { profile, gallery } = useAppData();
   const rows = personalInformationOf(profile);
 
   return (
@@ -49,7 +46,7 @@ export function MyProfileScreen({ onBack, onEdit }: MyProfileScreenProps) {
         <View style={styles.identity}>
           <Image
             accessibilityLabel={profile.fullName}
-            source={require('../assets/images/astrologer-avatar.jpg')}
+            source={photoOf(profile.photoUrl, require('../assets/images/astrologer-avatar.jpg'))}
             style={styles.avatar}
           />
 
@@ -92,10 +89,10 @@ export function MyProfileScreen({ onBack, onEdit }: MyProfileScreenProps) {
           <Text style={styles.about}>{profile.about}</Text>
         </View>
 
-        {/* The galleries themselves are managed on the edit form. */}
+        {/* The gallery itself is managed on the edit form. */}
         <ProfileGalleryCard
           title="Astrologer Profile Gallery"
-          count={PROFILE_GALLERY_COUNT}
+          photos={gallery}
           onEdit={onEdit}
         />
       </ScrollView>

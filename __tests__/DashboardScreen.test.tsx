@@ -41,7 +41,8 @@ test('dashboard renders every section of the home screen', async () => {
 
   /** The greeting follows the clock, so match any of the three. */
   expect(text).toMatch(/Good (Morning|Afternoon|Evening) ✨/);
-  expect(text).toContain('Pt. Rajesh');
+  // The astrologer's own real name wins over the dashboard fixture's.
+  expect(text).toContain(FIXTURE_PROFILE.fullName);
   expect(text).toContain('₹2,840');
   expect(text).toContain("Today's Earnings");
   expect(text).toContain('₹42,350 this month');

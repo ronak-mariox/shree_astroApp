@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   Pressable,
   ScrollView,
@@ -26,6 +26,7 @@ import {
   filterReviews,
   type Review,
 } from '../data/reviews';
+import { useResponsive } from '../hooks/useResponsive';
 import { useAppData } from '../state/AppDataProvider';
 import { colors, radius, spacing, typography } from '../theme';
 
@@ -58,6 +59,11 @@ export function MyReviewsScreen({ onBack }: MyReviewsScreenProps) {
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<Filter>(null);
   const [replyingTo, setReplyingTo] = useState<Review | null>(null);
+  const { px, contentWidth, isTablet } = useResponsive();
+  const styles = useMemo(
+    () => createStyles(px, contentWidth, isTablet),
+    [px, contentWidth, isTablet],
+  );
 
   const visible = filterReviews(reviews, { year, month, query });
 
@@ -166,78 +172,83 @@ export function MyReviewsScreen({ onBack }: MyReviewsScreenProps) {
   );
 }
 
-const styles = StyleSheet.create({
-  screen: {
-    flex: 1,
-    backgroundColor: colors.canvasSoft,
-  },
-  content: {
-    paddingHorizontal: 14,
-    paddingTop: 14,
-    paddingBottom: spacing.lg,
-    gap: spacing.md,
-  },
-  notice: {
-    paddingHorizontal: 11,
-    paddingVertical: 11,
-    borderRadius: radius.mediaCard,
-    backgroundColor: colors.surfaceInset,
-  },
-  noticeTitle: {
-    ...typography.reviewBannerTitle,
-    color: colors.text.sheet,
-  },
-  noticeBody: {
-    ...typography.reviewBannerBody,
-    color: colors.text.sheet,
-    paddingTop: 4,
-  },
-  filters: {
-    flexDirection: 'row',
-    gap: 9,
-  },
-  filter: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    height: FILTER_HEIGHT,
-    paddingLeft: 10,
-    paddingRight: 4,
-    borderRadius: radius.mediaCard,
-    borderWidth: 1,
-    borderColor: colors.border.reviewFilter,
-    backgroundColor: colors.border.reviewFilter,
-  },
-  filterLabel: {
-    ...typography.reviewLabel,
-    color: colors.review.filterLabel,
-  },
-  pressed: {
-    opacity: 0.6,
-  },
-  search: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 11,
-    height: FILTER_HEIGHT,
-    paddingHorizontal: 8,
-    borderRadius: radius.mediaCard,
-    borderWidth: 1,
-    borderColor: colors.border.reviewFilter,
-    backgroundColor: colors.border.reviewFilter,
-  },
-  searchInput: {
-    ...typography.reviewLabel,
-    flex: 1,
-    paddingVertical: 0,
-    color: colors.text.slateMuted,
-  },
-  empty: {
-    ...typography.reviewLabel,
-    color: colors.text.slateMuted,
-    textAlign: 'center',
-    paddingTop: spacing.lg,
-    opacity: 0.8,
-  },
-});
+function createStyles(px: (value: number) => number, contentWidth: number, isTablet: boolean) {
+  return StyleSheet.create({
+    screen: {
+      flex: 1,
+      backgroundColor: colors.canvasSoft,
+    },
+    content: {
+      alignSelf: 'center',
+      width: '100%',
+      maxWidth: isTablet ? contentWidth : undefined,
+      paddingHorizontal: px(14),
+      paddingTop: px(14),
+      paddingBottom: spacing.lg,
+      gap: spacing.md,
+    },
+    notice: {
+      paddingHorizontal: px(11),
+      paddingVertical: px(11),
+      borderRadius: radius.mediaCard,
+      backgroundColor: colors.surfaceInset,
+    },
+    noticeTitle: {
+      ...typography.reviewBannerTitle,
+      color: colors.text.sheet,
+    },
+    noticeBody: {
+      ...typography.reviewBannerBody,
+      color: colors.text.sheet,
+      paddingTop: 4,
+    },
+    filters: {
+      flexDirection: 'row',
+      gap: 9,
+    },
+    filter: {
+      flex: 1,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      height: px(FILTER_HEIGHT),
+      paddingLeft: px(10),
+      paddingRight: px(4),
+      borderRadius: radius.mediaCard,
+      borderWidth: 1,
+      borderColor: colors.border.reviewFilter,
+      backgroundColor: colors.border.reviewFilter,
+    },
+    filterLabel: {
+      ...typography.reviewLabel,
+      color: colors.review.filterLabel,
+    },
+    pressed: {
+      opacity: 0.6,
+    },
+    search: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 11,
+      height: px(FILTER_HEIGHT),
+      paddingHorizontal: px(8),
+      borderRadius: radius.mediaCard,
+      borderWidth: 1,
+      borderColor: colors.border.reviewFilter,
+      backgroundColor: colors.border.reviewFilter,
+    },
+    searchInput: {
+      ...typography.reviewLabel,
+      flex: 1,
+      paddingVertical: 0,
+      color: colors.text.slateMuted,
+    },
+    empty: {
+      ...typography.reviewLabel,
+      color: colors.text.slateMuted,
+      textAlign: 'center',
+      paddingTop: spacing.lg,
+      opacity: 0.8,
+    },
+  });
+}

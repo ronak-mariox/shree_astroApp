@@ -1,5 +1,5 @@
-import React from 'react';
-import { Platform, Pressable, StyleSheet, View } from 'react-native';
+import React, { useEffect, useRef } from 'react';
+import { Animated, Easing, Platform, Pressable, StyleSheet } from 'react-native';
 
 import { colors } from '../theme';
 
@@ -16,6 +16,9 @@ const TRACK_RADIUS = 9.726;
 const THUMB_WIDTH = 14.508;
 const THUMB_HEIGHT = 14.736;
 const THUMB_INSET = 4;
+const THUMB_TRAVEL = TRACK_WIDTH - THUMB_WIDTH - THUMB_INSET * 2;
+
+const TOGGLE_DURATION = 180;
 
 type ServiceSwitchProps = {
   value: boolean;
@@ -28,22 +31,39 @@ export function ServiceSwitch({
   onValueChange,
   accessibilityLabel,
 }: ServiceSwitchProps) {
+  const progress = useRef(new Animated.Value(value ? 1 : 0)).current;
+
+  useEffect(() => {
+    Animated.timing(progress, {
+      toValue: value ? 1 : 0,
+      duration: TOGGLE_DURATION,
+      easing: Easing.out(Easing.quad),
+      // Color interpolation isn't supported on the native driver.
+      useNativeDriver: false,
+    }).start();
+  }, [progress, value]);
+
+  const translateX = progress.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, THUMB_TRAVEL],
+  });
+  const trackColor = progress.interpolate({
+    inputRange: [0, 1],
+    outputRange: [colors.toggle.track, colors.status.success],
+  });
+
   return (
     <Pressable
       accessibilityRole="switch"
       accessibilityState={{ checked: value }}
       accessibilityLabel={accessibilityLabel}
       onPress={() => onValueChange(!value)}
-      style={[styles.track, value && styles.trackOn]}
     >
-      <View
-        style={[
-          styles.thumb,
-          value
-            ? { right: THUMB_INSET }
-            : { left: THUMB_INSET },
-        ]}
-      />
+      <Animated.View style={[styles.track, { backgroundColor: trackColor }]}>
+        <Animated.View
+          style={[styles.thumb, { transform: [{ translateX }] }]}
+        />
+      </Animated.View>
     </Pressable>
   );
 }
@@ -53,14 +73,11 @@ const styles = StyleSheet.create({
     width: TRACK_WIDTH,
     height: TRACK_HEIGHT,
     borderRadius: TRACK_RADIUS,
-    backgroundColor: colors.toggle.track,
     justifyContent: 'center',
-  },
-  trackOn: {
-    backgroundColor: colors.status.success,
   },
   thumb: {
     position: 'absolute',
+    left: THUMB_INSET,
     width: THUMB_WIDTH,
     height: THUMB_HEIGHT,
     borderRadius: THUMB_WIDTH / 2,

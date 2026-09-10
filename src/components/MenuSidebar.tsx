@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Animated,
   Easing,
@@ -14,8 +14,11 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Defs, LinearGradient, Path, Stop } from 'react-native-svg';
 
 import { EditPenIcon } from './icons/MenuIcons';
-import { MENU_ITEMS, MENU_PROFILE, type MenuItem } from '../data/menu';
+import { MENU_ITEMS, type MenuItem } from '../data/menu';
+import { useAppData } from '../state/AppDataProvider';
+import { useResponsive } from '../hooks/useResponsive';
 import { colors, radius, spacing, typography } from '../theme';
+import { photoOf } from '../utils/images';
 
 /** The drawer measures 315pt of white with 8pt of gradient behind its right
  *  edge, so the whole thing is 323pt wide (Figma nodes 110:13003, 110:13001). */
@@ -55,6 +58,14 @@ export function MenuSidebar({
   onEditProfile,
 }: MenuSidebarProps) {
   const insets = useSafeAreaInsets();
+  const { px } = useResponsive();
+  const styles = useMemo(() => createStyles(px), [px]);
+  const drawerWidth = px(DRAWER_WIDTH);
+
+  /** The signed-in astrologer, once AppDataProvider's fetch resolves; blank until then. */
+  const { profile } = useAppData();
+  const name = profile.fullName;
+  const phone = profile.primaryMobile;
   /**
    * `Modal`'s own slide animation always comes up from the bottom, so the drawer
    * is animated by hand: it travels in from the left edge while the scrim fades
@@ -89,7 +100,7 @@ export function MenuSidebar({
 
   const slide = progress.interpolate({
     inputRange: [0, 1],
-    outputRange: [-DRAWER_WIDTH, 0],
+    outputRange: [-drawerWidth, 0],
   });
 
   return (
@@ -109,16 +120,16 @@ export function MenuSidebar({
           <View style={styles.spine} pointerEvents="none" />
 
           <View style={styles.panel}>
-            <View style={[styles.profile, { paddingTop: insets.top + 24.45 }]}>
+            <View style={[styles.profile, { paddingTop: insets.top + px(24.45) }]}>
               <Image
-                accessibilityLabel={MENU_PROFILE.name}
-                source={require('../assets/images/menu-avatar.png')}
+                accessibilityLabel={name}
+                source={photoOf(profile.photoUrl, require('../assets/images/menu-avatar.png'))}
                 style={styles.avatar}
               />
 
               <View style={styles.identity}>
-                <Text style={styles.name}>{MENU_PROFILE.name}</Text>
-                <Text style={styles.phone}>{MENU_PROFILE.phone}</Text>
+                <Text style={styles.name}>{name}</Text>
+                <Text style={styles.phone}>{phone}</Text>
               </View>
 
               <Pressable
@@ -128,7 +139,7 @@ export function MenuSidebar({
                 hitSlop={spacing.sm}
                 style={({ pressed }) => pressed && styles.pressed}
               >
-                <EditPenIcon size={PEN_SIZE} />
+                <EditPenIcon size={px(PEN_SIZE)} />
               </Pressable>
             </View>
 
@@ -150,7 +161,7 @@ export function MenuSidebar({
                   ]}
                 >
                   <View style={styles.itemIcon}>
-                    <item.Icon size={ITEM_ICON_SIZE} />
+                    <item.Icon size={px(ITEM_ICON_SIZE)} />
                   </View>
                   <Text
                     style={[
@@ -171,7 +182,7 @@ export function MenuSidebar({
             onPress={onCollapse}
             style={styles.handle}
           >
-            <CollapseHandle />
+            <CollapseHandle size={px(HANDLE_WIDTH)} />
             <View style={styles.grip} />
           </Pressable>
         </Animated.View>
@@ -189,11 +200,11 @@ export function MenuSidebar({
 }
 
 /** The teardrop the handle is cut from (Figma node 110:13020). */
-function CollapseHandle() {
+function CollapseHandle({ size = HANDLE_WIDTH }: { size?: number }) {
   return (
     <Svg
-      width={HANDLE_WIDTH}
-      height={HANDLE_HEIGHT}
+      width={size}
+      height={(size / HANDLE_WIDTH) * HANDLE_HEIGHT}
       viewBox="0 0 30.2715 141.204"
       fill="none"
     >
@@ -218,109 +229,120 @@ function CollapseHandle() {
   );
 }
 
-const styles = StyleSheet.create({
-  stage: {
-    flex: 1,
-    flexDirection: 'row',
-  },
-  drawer: {
-    width: DRAWER_WIDTH,
-  },
-  spine: {
-    position: 'absolute',
-    left: SPINE_LEFT,
-    top: 1,
-    bottom: 1,
-    width: SPINE_WIDTH,
-    borderRadius: radius.button,
-    // Painted flat rather than as a ramp: only its right sliver is ever visible.
-    backgroundColor: colors.gradient.from,
-  },
-  panel: {
-    position: 'absolute',
-    left: 0,
-    top: 0,
-    bottom: 0,
-    width: PANEL_WIDTH,
-    borderRadius: radius.input,
-    backgroundColor: colors.surface,
-    overflow: 'hidden',
-  },
-  profile: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingLeft: 24.32,
-    paddingRight: spacing.section,
-    paddingBottom: spacing.lg,
-  },
-  avatar: {
-    width: AVATAR_SIZE,
-    height: AVATAR_SIZE,
-    borderRadius: AVATAR_SIZE / 2,
-  },
-  identity: {
-    flex: 1,
-    paddingLeft: 18.42,
-  },
-  name: {
-    ...typography.menuLabel,
-    color: colors.text.sheet,
-  },
-  phone: {
-    ...typography.menuMeta,
-    color: colors.text.slateMuted,
-    opacity: 0.4,
-    paddingTop: 2,
-  },
-  pressed: {
-    opacity: 0.6,
-  },
-  items: {
-    paddingLeft: 22.29,
-    paddingRight: spacing.section,
-    paddingBottom: spacing.xl,
-    gap: spacing.xl,
-  },
-  item: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  // Figma seats each label 31.3pt from the icon's left edge (node 110:13024).
-  itemIcon: {
-    width: 31.3,
-    justifyContent: 'center',
-  },
-  itemLabel: {
-    ...typography.menuLabel,
-    color: colors.text.sheet,
-  },
-  itemLabelDestructive: {
-    color: colors.delete,
-  },
-  handle: {
-    position: 'absolute',
-    left: HANDLE_LEFT,
-    top: '50%',
-    marginTop: -HANDLE_HEIGHT / 2,
-    width: HANDLE_WIDTH,
-    height: HANDLE_HEIGHT,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  // The 3pt ink grip Figma rotates upright at the handle's centre (110:13021).
-  grip: {
-    position: 'absolute',
-    width: 3,
-    height: GRIP_LENGTH,
-    borderRadius: 1.5,
-    backgroundColor: colors.text.ink,
-    left: HANDLE_WIDTH - 7.5,
-  },
-  scrim: {
-    flex: 1,
-    backgroundColor: colors.scrim,
-  },
-  scrimTouch: {
-    flex: 1,
-  },
-});
+/**
+ * The drawer is a fixed-width panel anchored to the left edge — that's
+ * already tablet-safe (a nav drawer staying a comfortable fixed width on a
+ * wide screen is the normal pattern), so only `px` scales it for small
+ * phones rather than reflowing on `isTablet`.
+ */
+function createStyles(px: (value: number) => number) {
+  const handleWidth = px(HANDLE_WIDTH);
+  const handleHeight = px(HANDLE_HEIGHT);
+
+  return StyleSheet.create({
+    stage: {
+      flex: 1,
+      flexDirection: 'row',
+    },
+    drawer: {
+      width: px(DRAWER_WIDTH),
+    },
+    spine: {
+      position: 'absolute',
+      left: px(SPINE_LEFT),
+      top: 1,
+      bottom: 1,
+      width: px(SPINE_WIDTH),
+      borderRadius: radius.button,
+      // Painted flat rather than as a ramp: only its right sliver is ever visible.
+      backgroundColor: colors.gradient.from,
+    },
+    panel: {
+      position: 'absolute',
+      left: 0,
+      top: 0,
+      bottom: 0,
+      width: px(PANEL_WIDTH),
+      borderRadius: radius.input,
+      backgroundColor: colors.surface,
+      overflow: 'hidden',
+    },
+    profile: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingLeft: px(24.32),
+      paddingRight: spacing.section,
+      paddingBottom: spacing.lg,
+    },
+    avatar: {
+      width: px(AVATAR_SIZE),
+      height: px(AVATAR_SIZE),
+      borderRadius: px(AVATAR_SIZE) / 2,
+    },
+    identity: {
+      flex: 1,
+      paddingLeft: px(18.42),
+    },
+    name: {
+      ...typography.menuLabel,
+      color: colors.text.sheet,
+    },
+    phone: {
+      ...typography.menuMeta,
+      color: colors.text.slateMuted,
+      opacity: 0.4,
+      paddingTop: 2,
+    },
+    pressed: {
+      opacity: 0.6,
+    },
+    items: {
+      paddingLeft: px(22.29),
+      paddingRight: spacing.section,
+      paddingBottom: spacing.xl,
+      gap: spacing.xl,
+    },
+    item: {
+      flexDirection: 'row',
+      alignItems: 'center',
+    },
+    // Figma seats each label 31.3pt from the icon's left edge (node 110:13024).
+    itemIcon: {
+      width: px(31.3),
+      justifyContent: 'center',
+    },
+    itemLabel: {
+      ...typography.menuLabel,
+      color: colors.text.sheet,
+    },
+    itemLabelDestructive: {
+      color: colors.delete,
+    },
+    handle: {
+      position: 'absolute',
+      left: px(HANDLE_LEFT),
+      top: '50%',
+      marginTop: -handleHeight / 2,
+      width: handleWidth,
+      height: handleHeight,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    // The 3pt ink grip Figma rotates upright at the handle's centre (110:13021).
+    grip: {
+      position: 'absolute',
+      width: px(3),
+      height: px(GRIP_LENGTH),
+      borderRadius: px(1.5),
+      backgroundColor: colors.text.ink,
+      left: handleWidth - px(7.5),
+    },
+    scrim: {
+      flex: 1,
+      backgroundColor: colors.scrim,
+    },
+    scrimTouch: {
+      flex: 1,
+    },
+  });
+}

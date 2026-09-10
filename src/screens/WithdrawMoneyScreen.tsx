@@ -20,7 +20,7 @@ import {
   WITHDRAW_PRESETS,
 } from '../data/wallet';
 import { useApi } from '../hooks/useApi';
-import { fetchEarnings, fetchBankAccounts } from '../services/api';
+import { fetchEarnings, fetchBankAccounts, requestWithdrawal } from '../services/api';
 import {
   colors,
   hairline,
@@ -58,8 +58,29 @@ export function WithdrawMoneyScreen({
 
   const insets = useSafeAreaInsets();
   const [amount, setAmount] = useState(WITHDRAW_DEFAULT);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const isValid = Number(amount || '0') >= MINIMUM;
+
+  const confirm = async () => {
+    if (!isValid || submitting) {
+      return;
+    }
+    setSubmitting(true);
+    setError(null);
+
+    try {
+      await requestWithdrawal(Number(amount), payout?.id);
+      onConfirm?.(amount);
+    } catch (caught) {
+      setError(
+        (caught as Error)?.message ?? 'Could not request the withdrawal. Please try again.',
+      );
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   return (
     <View style={styles.screen}>
@@ -145,16 +166,18 @@ export function WithdrawMoneyScreen({
           Settlement within 24 hours. Min withdrawal ₹500. Platform deducts 10%
           fee.
         </InfoNote>
+
+        {error && <Text style={styles.error}>{error}</Text>}
       </ScrollView>
 
       <View style={[styles.footer, { paddingBottom: spacing.huge + insets.bottom }]}>
         <PrimaryButton
-          label="Confirm Withdrawal"
+          label={submitting ? 'Requesting…' : 'Confirm Withdrawal'}
           height={CTA_HEIGHT}
-          disabled={!isValid}
+          disabled={!isValid || submitting}
           disabledRadius={radius.field}
           labelStyle={styles.ctaLabel}
-          onPress={() => onConfirm?.(amount)}
+          onPress={confirm}
         />
       </View>
     </View>
@@ -286,5 +309,10 @@ const styles = StyleSheet.create({
   ctaLabel: {
     ...typography.buttonStrong,
     color: colors.text.onGradient,
+  },
+  error: {
+    ...typography.note,
+    color: colors.status.danger,
+    textAlign: 'center',
   },
 });

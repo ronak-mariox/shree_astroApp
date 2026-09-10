@@ -1,7 +1,8 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { CloseCircleIcon } from './icons/ChatIcons';
+import { useResponsive } from '../hooks/useResponsive';
 import { colors, radius, spacing, typography } from '../theme';
 
 const CARD_WIDTH = 338;
@@ -23,6 +24,9 @@ export function LeaveChatDialog({
   onStay,
   onLeave,
 }: LeaveChatDialogProps) {
+  const { px } = useResponsive();
+  const styles = useMemo(() => createStyles(px), [px]);
+
   return (
     <Modal
       visible={visible}
@@ -81,73 +85,75 @@ export function LeaveChatDialog({
   );
 }
 
-const styles = StyleSheet.create({
-  scrim: {
-    flex: 1,
-    // Figma stacks 0.68 black at 80% opacity (node 110:2750).
-    backgroundColor: colors.scrim,
-    opacity: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: spacing.lg,
-  },
-  card: {
-    width: '100%',
-    maxWidth: CARD_WIDTH,
-    paddingTop: 33.76,
-    paddingBottom: 12,
-    paddingHorizontal: 11,
-    borderRadius: radius.input,
-    backgroundColor: colors.surface,
-  },
-  close: {
-    position: 'absolute',
-    right: 17,
-    top: 15,
-  },
-  pressed: {
-    opacity: 0.6,
-  },
-  title: {
-    ...typography.dialogBody,
-    fontFamily: typography.sheetTitle.fontFamily,
-    color: colors.text.sheet,
-    textAlign: 'center',
-  },
-  body: {
-    ...typography.dialogBody,
-    color: colors.text.sheet,
-    textAlign: 'center',
-    paddingTop: 13,
-  },
-  actions: {
-    flexDirection: 'row',
-    gap: spacing.sm,
-    paddingTop: spacing.xl,
-  },
-  button: {
-    flex: 1,
-    height: BUTTON_HEIGHT,
-    borderRadius: radius.buttonOutline,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  stay: {
-    borderWidth: 1,
-    borderColor: colors.leave.border,
-  },
-  leave: {
-    backgroundColor: colors.brandYellow,
-  },
-  buttonLabel: {
-    ...typography.dialogButton,
-    textAlign: 'center',
-    textTransform: 'capitalize',
-  },
-  stayLabel: {
-    color: colors.leave.label,
-  },
-  leaveLabel: {
-    color: colors.text.inverse,
-  },
-});
+function createStyles(px: (value: number) => number) {
+  return StyleSheet.create({
+    scrim: {
+      flex: 1,
+      // Figma stacks 0.68 black at 80% opacity (node 110:2750).
+      backgroundColor: colors.scrim,
+      opacity: 1,
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingHorizontal: spacing.lg,
+    },
+    card: {
+      width: '100%',
+      maxWidth: CARD_WIDTH,
+      paddingTop: px(33.76),
+      paddingBottom: px(12),
+      paddingHorizontal: px(11),
+      borderRadius: radius.input,
+      backgroundColor: colors.surface,
+    },
+    close: {
+      position: 'absolute',
+      right: px(17),
+      top: px(15),
+    },
+    pressed: {
+      opacity: 0.6,
+    },
+    title: {
+      ...typography.dialogBody,
+      fontFamily: typography.sheetTitle.fontFamily,
+      color: colors.text.sheet,
+      textAlign: 'center',
+    },
+    body: {
+      ...typography.dialogBody,
+      color: colors.text.sheet,
+      textAlign: 'center',
+      paddingTop: px(13),
+    },
+    actions: {
+      flexDirection: 'row',
+      gap: spacing.sm,
+      paddingTop: spacing.xl,
+    },
+    button: {
+      flex: 1,
+      height: px(BUTTON_HEIGHT),
+      borderRadius: radius.buttonOutline,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    stay: {
+      borderWidth: 1,
+      borderColor: colors.leave.border,
+    },
+    leave: {
+      backgroundColor: colors.brandYellow,
+    },
+    buttonLabel: {
+      ...typography.dialogButton,
+      textAlign: 'center',
+      textTransform: 'capitalize',
+    },
+    stayLabel: {
+      color: colors.leave.label,
+    },
+    leaveLabel: {
+      color: colors.text.inverse,
+    },
+  });
+}

@@ -4,6 +4,7 @@ import React, {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react';
 
@@ -17,12 +18,14 @@ import {
   type DocumentGroup,
   type UploadedDocument,
 } from '../data/documents';
+import { type GalleryPhoto } from '../data/gallery';
 import { type PriceChangeDraft, type ServiceRate } from '../data/priceChange';
 import { type AstrologerProfile } from '../data/profile';
 import { type Review } from '../data/reviews';
 import { type Dispute } from '../data/support';
 import * as api from '../services/api';
 import type { PickedFile } from '../services/filePicker';
+import { getSession, onSessionChange } from '../services/session';
 
 /** An empty profile, so the first paint has the right shape to read from. */
 const BLANK_PROFILE: AstrologerProfile = {
@@ -66,6 +69,11 @@ type AppData = {
   saveProfile: (profile: AstrologerProfile) => Promise<boolean>;
   changeProfilePhoto: (file: PickedFile) => Promise<boolean>;
 
+  /** The astrologer's own portfolio gallery — separate from their profile photo. */
+  gallery: ReadonlyArray<GalleryPhoto>;
+  addGalleryImage: (file: PickedFile) => Promise<boolean>;
+  removeGalleryImage: (id: string) => Promise<boolean>;
+
   addBankAccount: (
     draft: BankAccountDraft,
     proof?: PickedFile,
@@ -106,11 +114,27 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   /* Empty until the server answers — nothing on screen is ever invented. */
   const [profile, setProfile] = useState<AstrologerProfile>(BLANK_PROFILE);
   const [bankAccounts, setBankAccounts] = useState<ReadonlyArray<BankAccount>>([]);
+  const [gallery, setGallery] = useState<ReadonlyArray<GalleryPhoto>>([]);
   const [documents, setDocuments] = useState<ReadonlyArray<UploadedDocument>>([]);
   const [serviceRates, setServiceRates] = useState<ReadonlyArray<ServiceRate>>([]);
   const [reviews, setReviews] = useState<ReadonlyArray<Review>>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  /** Whose data is loaded above — re-synced on every sign-in/sign-out so a second astrologer never inherits the first one's state on the same running app. */
+  const [astrologerId, setAstrologerId] = useState<string | null>(
+    () => getSession()?.astrologer.id ?? null,
+  );
+
+  /** Back to the pre-login shape — used on sign-out, and right before a different astrologer's data loads in. */
+  const reset = useCallback(() => {
+    setProfile(BLANK_PROFILE);
+    setBankAccounts([]);
+    setGallery([]);
+    setDocuments([]);
+    setServiceRates([]);
+    setReviews([]);
+    setError(null);
+  }, []);
 
   /**
    * Reads everything the signed-in screens need.
@@ -126,14 +150,16 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       api.fetchDocuments(),
       api.fetchServiceRates(),
       api.fetchReviews(),
+      api.fetchGallery(),
     ]);
 
-    const [nextProfile, nextAccounts, nextDocuments, nextRates, nextReviews] = results;
+    const [nextProfile, nextAccounts, nextDocuments, nextRates, nextReviews, nextGallery] = results;
     if (nextProfile.status === 'fulfilled') setProfile(nextProfile.value);
     if (nextAccounts.status === 'fulfilled') setBankAccounts(nextAccounts.value);
     if (nextDocuments.status === 'fulfilled') setDocuments(nextDocuments.value);
     if (nextRates.status === 'fulfilled') setServiceRates(nextRates.value);
     if (nextReviews.status === 'fulfilled') setReviews(nextReviews.value);
+    if (nextGallery.status === 'fulfilled') setGallery(nextGallery.value);
 
     /** Only the profile failing is worth telling the user about. */
     if (nextProfile.status === 'rejected') {
@@ -147,9 +173,37 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     setLoading(false);
   }, []);
 
+  /** Tracks whoever is actually signed in right now, however that changed. */
+  useEffect(
+    () => onSessionChange(session => setAstrologerId(session?.astrologer.id ?? null)),
+    [],
+  );
+
+  /**
+   * The very first mount always loads, exactly as before — this provider is
+   * rendered standalone in tests, ahead of `restoreSession()` settling in a
+   * real app, so it must not wait on `astrologerId` to already be right.
+   *
+   * Every *subsequent* firing means the signed-in astrologer actually
+   * changed after mount — a sign-out, or a fresh sign-in replacing a
+   * different account on the same running app — so it blanks everything
+   * first rather than leaving the previous astrologer's data sitting in
+   * memory for whoever is signed in now.
+   */
+  const mounted = useRef(false);
   useEffect(() => {
-    refresh();
-  }, [refresh]);
+    if (!mounted.current) {
+      mounted.current = true;
+      refresh();
+      return;
+    }
+    reset();
+    if (astrologerId) {
+      refresh();
+    } else {
+      setLoading(false);
+    }
+  }, [astrologerId, refresh, reset]);
 
   /** Runs a write, keeping whatever it returns and surfacing any refusal. */
   const attempt = useCallback(
@@ -187,6 +241,18 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       changeProfilePhoto: file =>
         attempt(async () => {
           setProfile(await api.uploadProfilePhoto(file));
+        }),
+
+      gallery,
+
+      addGalleryImage: file =>
+        attempt(async () => {
+          setGallery(await api.addGalleryImage(file));
+        }),
+
+      removeGalleryImage: id =>
+        attempt(async () => {
+          setGallery(await api.deleteGalleryImage(id));
         }),
 
       addBankAccount: (draft, proof) =>
@@ -261,7 +327,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
           );
         }),
     }),
-    [profile, bankAccounts, documents, serviceRates, reviews, error, loading, refresh, attempt],
+    [profile, bankAccounts, documents, gallery, serviceRates, reviews, error, loading, refresh, attempt],
   );
 
   return (

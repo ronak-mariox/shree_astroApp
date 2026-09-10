@@ -199,8 +199,8 @@ test('withdraw starts on ₹5,000 and presets rewrite the amount', async () => {
   });
   expect(field().props.value).toBe('10000');
 
-  await act(() => {
-    tree.root.findByType(PrimaryButton).props.onPress();
+  await act(async () => {
+    await tree.root.findByType(PrimaryButton).props.onPress();
   });
   expect(onConfirm).toHaveBeenCalledWith('10000');
 });

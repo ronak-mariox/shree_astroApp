@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import {
   Modal,
   Pressable,
@@ -10,6 +10,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { CloseCircleIcon } from './icons/ChatIcons';
+import { useResponsive } from '../hooks/useResponsive';
 import { colors, radius, spacing, typography } from '../theme';
 
 /** Figma draws both kundli sheets on an 813pt frame (nodes 110:3900, 110:4740). */
@@ -41,6 +42,8 @@ export function KundliSheetFrame({
 }: KundliSheetFrameProps) {
   const insets = useSafeAreaInsets();
   const { height } = useWindowDimensions();
+  const { px, isTablet } = useResponsive();
+  const styles = useMemo(() => createStyles(isTablet), [isTablet]);
   // Keep the designed proportion of the screen rather than a fixed height, so
   // the sheet reads the same on a taller or shorter phone.
   const sheetHeight = Math.round((designHeight / DESIGN_FRAME_HEIGHT) * height);
@@ -75,7 +78,7 @@ export function KundliSheetFrame({
               hitSlop={spacing.sm}
               style={({ pressed }) => [
                 styles.close,
-                { right: closeInset },
+                { right: px(closeInset) },
                 pressed && styles.pressed,
               ]}
             >
@@ -92,45 +95,53 @@ export function KundliSheetFrame({
   );
 }
 
-const styles = StyleSheet.create({
-  stage: {
-    flex: 1,
-    justifyContent: 'flex-end',
-  },
-  scrim: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    top: 0,
-    bottom: 0,
-    backgroundColor: colors.scrim,
-  },
-  sheet: {
-    borderTopLeftRadius: radius.input,
-    borderTopRightRadius: radius.input,
-    backgroundColor: colors.surface,
-    overflow: 'hidden',
-  },
-  titleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingTop: 12,
-  },
-  title: {
-    ...typography.sheetTitle,
-    color: colors.text.sheet,
-  },
-  close: {
-    position: 'absolute',
-  },
-  pressed: {
-    opacity: 0.6,
-  },
-  rule: {
-    height: 1,
-    marginTop: spacing.sm,
-    marginHorizontal: 7.5,
-    backgroundColor: colors.border.tableRow,
-  },
-});
+function createStyles(isTablet: boolean) {
+  return StyleSheet.create({
+    stage: {
+      flex: 1,
+      justifyContent: 'flex-end',
+    },
+    scrim: {
+      position: 'absolute',
+      left: 0,
+      right: 0,
+      top: 0,
+      bottom: 0,
+      backgroundColor: colors.scrim,
+    },
+    sheet: {
+      alignSelf: 'center',
+      width: '100%',
+      maxWidth: isTablet ? 480 : undefined,
+      marginBottom: isTablet ? spacing.xxl : 0,
+      borderTopLeftRadius: radius.input,
+      borderTopRightRadius: radius.input,
+      borderBottomLeftRadius: isTablet ? radius.input : 0,
+      borderBottomRightRadius: isTablet ? radius.input : 0,
+      backgroundColor: colors.surface,
+      overflow: 'hidden',
+    },
+    titleRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingTop: 12,
+    },
+    title: {
+      ...typography.sheetTitle,
+      color: colors.text.sheet,
+    },
+    close: {
+      position: 'absolute',
+    },
+    pressed: {
+      opacity: 0.6,
+    },
+    rule: {
+      height: 1,
+      marginTop: spacing.sm,
+      marginHorizontal: 7.5,
+      backgroundColor: colors.border.tableRow,
+    },
+  });
+}

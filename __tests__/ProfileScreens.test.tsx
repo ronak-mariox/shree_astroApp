@@ -1,13 +1,9 @@
 import React from 'react';
 
-import { FIXTURE_PROFILE } from './helpers/fixtures';
+import { FIXTURE_GALLERY, FIXTURE_PROFILE } from './helpers/fixtures';
 
 import { OptionPickerSheet } from '../src/components/OptionPickerSheet';
-import {
-  EDIT_GALLERIES,
-  personalInformationOf,
-  primaryMobileOf,
-} from '../src/data/profile';
+import { personalInformationOf, primaryMobileOf } from '../src/data/profile';
 import { EditProfileScreen } from '../src/screens/EditProfileScreen';
 import { MyProfileScreen } from '../src/screens/MyProfileScreen';
 import {
@@ -85,9 +81,7 @@ test('edit profile opens on the record and lays out both galleries', async () =>
   expect(text).toContain(FIXTURE_PROFILE.skill);
   expect(text).toContain(FIXTURE_PROFILE.language);
 
-  for (const gallery of EDIT_GALLERIES) {
-    expect(text).toContain(gallery.title);
-  }
+  expect(text).toContain('Profile Gallery');
   expect(text).toContain('New Request For Details Change');
   expect(text).toContain('No change requests found');
 });
@@ -194,4 +188,29 @@ test('the photo button records the picked file', async () => {
   });
 
   expect(textOf(tree)).toContain('New photo selected: photo-1.jpg');
+});
+
+/** Every "Remove photo" pressable — one per gallery thumbnail. */
+const removeButtons = (tree: Parameters<typeof pressableLabelled>[0]) =>
+  tree.root.findAll(
+    node =>
+      node.props.accessibilityLabel === 'Remove photo' &&
+      typeof node.props.onPress === 'function',
+  );
+
+test('the gallery is separate from the profile photo: it starts with the astrologer’s own uploads, grows on Add, and shrinks on Remove', async () => {
+  const tree = await render(<EditProfileScreen />);
+
+  // Seeded with the astrologer's own gallery, not the profile photo.
+  expect(removeButtons(tree)).toHaveLength(FIXTURE_GALLERY.length);
+
+  await act(async () => {
+    await pressableLabelled(tree, 'Add to Profile Gallery').props.onPress();
+  });
+  expect(removeButtons(tree)).toHaveLength(FIXTURE_GALLERY.length + 1);
+
+  await act(async () => {
+    await removeButtons(tree)[0].props.onPress();
+  });
+  expect(removeButtons(tree)).toHaveLength(FIXTURE_GALLERY.length);
 });

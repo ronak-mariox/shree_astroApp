@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   Image,
   Pressable,
@@ -24,10 +24,12 @@ import { RequestCard, type ConsultationRequest } from '../components/RequestCard
 import { ServicesCard, type ServiceRow } from '../components/ServicesCard';
 import { StatCard } from '../components/StatCard';
 import { useApi } from '../hooks/useApi';
-import { requestsFromApi } from '../utils/requests';
+import { useIncomingRequests } from '../hooks/useIncomingRequests';
+import { useResponsive } from '../hooks/useResponsive';
 import * as api from '../services/api';
 import { useAppData } from '../state/AppDataProvider';
 import { colors, hairline, radius, spacing, stroke, typography } from '../theme';
+import { photoOf } from '../utils/images';
 
 /** "Good Morning ✨" / "Good Afternoon ✨" / "Good Evening ✨". */
 function greetingFor(now: Date): string {
@@ -84,12 +86,20 @@ export function DashboardScreen({
   onLogout,
 }: DashboardScreenProps) {
   const insets = useSafeAreaInsets();
+  const { px, contentWidth, isTablet } = useResponsive();
+  const styles = useMemo(
+    () => createStyles(px, contentWidth, isTablet),
+    [px, contentWidth, isTablet],
+  );
   const { profile } = useAppData();
 
   /** Everything the screen prints, in one call. */
   const dashboard = useApi(() => api.fetchDashboard(), []);
-  /** The queue behind the incoming-request popup. */
-  const requestQueue = useApi(() => api.fetchRequests(), []);
+  /** The queue behind the incoming-request popup — live, via the account's socket room. */
+  const { requests, reviewing, setReviewing, answer } = useIncomingRequests({
+    onAccepted: onAcceptRequest,
+    onSettled: dashboard.reload,
+  });
 
   /**
    * The availability toggle. `undefined` means "not touched yet", which falls
@@ -101,23 +111,26 @@ export function DashboardScreen({
 
   /** Whether the header avatar's dropdown is showing. */
   const [profileOpen, setProfileOpen] = useState(false);
-  /** The request whose details are open in the popup. */
-  const [reviewing, setReviewing] = useState<ConsultationRequest | null>(null);
 
   const earnings = dashboard.data?.earnings;
   const performance = dashboard.data?.performance;
 
-  /** The API's services, in the shape the card draws. */
-  const services: ServiceRow[] = (dashboard.data?.services ?? []).map(service => ({
-    id: service.type as ServiceRow['id'],
-    label: service.type === 'call' ? 'Call' : service.type === 'chat' ? 'Chat' : service.type,
-    rate: String(service.effectiveRate ?? service.ratePerMinute),
-    time: '',
-    enabled: service.isEnabled,
-  }));
-
-  /** The queue, in the shape the request card draws. */
-  const requests = requestsFromApi(requestQueue.data ?? []);
+  /**
+   * The API's services, in the shape the card draws. The card only has a Call
+   * and a Chat row (Figma node 106:6879), so anything else the account carries
+   * — live sessions, the emergency line — sits outside this table.
+   */
+  const services: ServiceRow[] = (dashboard.data?.services ?? [])
+    .filter((service): service is typeof service & { type: 'call' | 'chat' } =>
+      service.type === 'call' || service.type === 'chat',
+    )
+    .map(service => ({
+      id: service.type,
+      label: service.type === 'call' ? 'Call' : 'Chat',
+      rate: String(service.effectiveRate ?? service.ratePerMinute),
+      time: service.onlineTime ?? '',
+      enabled: service.isEnabled,
+    }));
 
   /** Turning availability on or off is written straight through to the server. */
   const changeOnline = async (next: boolean) => {
@@ -136,26 +149,6 @@ export function DashboardScreen({
       await dashboard.reload();
     } catch {
       /** The card re-reads from the server, so a refusal simply undoes itself. */
-      await dashboard.reload();
-    }
-  };
-
-  /**
-   * Either button on a request card opens the full brief rather than answering
-   * straight away; the popup's own buttons are what settle it.
-   */
-  const answer = async (request: ConsultationRequest, accepted: boolean) => {
-    setReviewing(null);
-
-    try {
-      if (accepted) {
-        await api.acceptRequest(request.id);
-        onAcceptRequest?.(request);
-      } else {
-        await api.rejectRequest(request.id, 'Declined');
-      }
-    } finally {
-      await requestQueue.reload();
       await dashboard.reload();
     }
   };
@@ -190,7 +183,7 @@ export function DashboardScreen({
           <View style={styles.greetingColumn}>
             <Text style={styles.greeting}>{greetingFor(new Date())}</Text>
             <Text style={styles.name}>
-              {dashboard.data?.name || profile.fullName || 'Astrologer'}
+              {profile.fullName || dashboard.data?.name || 'Astrologer'}
             </Text>
           </View>
 
@@ -204,8 +197,8 @@ export function DashboardScreen({
             style={({ pressed }) => pressed && styles.pressed}
           >
             <Image
-              accessibilityLabel={dashboard.data?.name || profile.fullName || 'Profile'}
-              source={require('../assets/images/astrologer-avatar.jpg')}
+              accessibilityLabel={profile.fullName || dashboard.data?.name || 'Profile'}
+              source={photoOf(profile.photoUrl, require('../assets/images/astrologer-avatar.jpg'))}
               style={styles.avatar}
             />
             {online && <View style={styles.avatarBadge} />}
@@ -217,7 +210,7 @@ export function DashboardScreen({
           padding, the avatar itself, then an 8pt gap. */}
       <ProfileMenu
         visible={profileOpen}
-        top={insets.top + 1 + AVATAR_SIZE + spacing.sm}
+        top={insets.top + 1 + px(AVATAR_SIZE) + spacing.sm}
         onDismiss={() => setProfileOpen(false)}
         onSelect={chooseProfileAction}
       />
@@ -225,7 +218,7 @@ export function DashboardScreen({
       <ScrollView contentContainerStyle={styles.content}>
         <View style={styles.statRow}>
           <StatCard
-            icon={<TrendingUpIcon size={STAT_ICON_SIZE} />}
+            icon={<TrendingUpIcon size={px(STAT_ICON_SIZE)} />}
             wellColor={colors.status.successBadge}
             badgeColor={colors.status.successBadge}
             badgeLabelColor={colors.status.success}
@@ -236,7 +229,7 @@ export function DashboardScreen({
             footnoteColor={colors.status.success}
           />
           <StatCard
-            icon={<WalletCardIcon size={STAT_ICON_SIZE} />}
+            icon={<WalletCardIcon size={px(STAT_ICON_SIZE)} />}
             wellColor="rgba(240, 223, 32, 0.15)"
             badgeColor="rgba(240, 223, 32, 0.12)"
             badgeLabelColor={colors.text.ink}
@@ -303,84 +296,92 @@ export function DashboardScreen({
   );
 }
 
-const styles = StyleSheet.create({
-  screen: {
-    flex: 1,
-    backgroundColor: colors.canvas,
-  },
-  header: {
-    backgroundColor: colors.surface,
-    paddingHorizontal: spacing.lg,
-    paddingBottom: 16.755,
-    borderBottomWidth: hairline,
-    borderBottomColor: colors.border.hairline,
-  },
-  headerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 15,
-  },
-  greetingColumn: {
-    flex: 1,
-  },
-  greeting: {
-    ...typography.greeting,
-    color: colors.text.secondary,
-  },
-  name: {
-    ...typography.dashboardTitle,
-    color: colors.text.inkSoft,
-    paddingTop: 2,
-  },
-  avatar: {
-    width: AVATAR_SIZE,
-    height: AVATAR_SIZE,
-    borderRadius: radius.iconTile,
-    borderWidth: stroke,
-    borderColor: colors.brandYellow,
-  },
-  pressed: {
-    opacity: 0.6,
-  },
-  avatarBadge: {
-    position: 'absolute',
-    left: 36,
-    top: 36,
-    width: AVATAR_BADGE_SIZE,
-    height: AVATAR_BADGE_SIZE,
-    borderRadius: AVATAR_BADGE_SIZE / 2,
-    borderWidth: stroke,
-    borderColor: colors.surface,
-    backgroundColor: colors.status.success,
-  },
-  content: {
-    padding: spacing.section,
-    gap: spacing.section,
-  },
-  statRow: {
-    flexDirection: 'row',
-    gap: spacing.md,
-  },
-  requests: {
-    gap: spacing.md,
-  },
-  requestsHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  sectionTitle: {
-    ...typography.sectionTitle,
-    color: colors.text.inkSoft,
-  },
-  countBadge: {
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 2,
-    borderRadius: radius.note,
-    backgroundColor: colors.status.danger,
-  },
-  countLabel: {
-    ...typography.badgeLabelStrong,
-    color: colors.text.inverse,
-  },
-});
+function createStyles(px: (value: number) => number, contentWidth: number, isTablet: boolean) {
+  return StyleSheet.create({
+    screen: {
+      flex: 1,
+      backgroundColor: colors.canvas,
+    },
+    header: {
+      backgroundColor: colors.surface,
+      paddingHorizontal: spacing.lg,
+      paddingBottom: px(16.755),
+      borderBottomWidth: hairline,
+      borderBottomColor: colors.border.hairline,
+    },
+    headerRow: {
+      alignSelf: 'center',
+      width: '100%',
+      maxWidth: isTablet ? contentWidth : undefined,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 15,
+    },
+    greetingColumn: {
+      flex: 1,
+    },
+    greeting: {
+      ...typography.greeting,
+      color: colors.text.secondary,
+    },
+    name: {
+      ...typography.dashboardTitle,
+      color: colors.text.inkSoft,
+      paddingTop: 2,
+    },
+    avatar: {
+      width: px(AVATAR_SIZE),
+      height: px(AVATAR_SIZE),
+      borderRadius: radius.iconTile,
+      borderWidth: stroke,
+      borderColor: colors.brandYellow,
+    },
+    pressed: {
+      opacity: 0.6,
+    },
+    avatarBadge: {
+      position: 'absolute',
+      left: px(36),
+      top: px(36),
+      width: px(AVATAR_BADGE_SIZE),
+      height: px(AVATAR_BADGE_SIZE),
+      borderRadius: px(AVATAR_BADGE_SIZE) / 2,
+      borderWidth: stroke,
+      borderColor: colors.surface,
+      backgroundColor: colors.status.success,
+    },
+    content: {
+      alignSelf: 'center',
+      width: '100%',
+      maxWidth: isTablet ? contentWidth : undefined,
+      padding: spacing.section,
+      gap: spacing.section,
+    },
+    statRow: {
+      flexDirection: 'row',
+      gap: spacing.md,
+    },
+    requests: {
+      gap: spacing.md,
+    },
+    requestsHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+    },
+    sectionTitle: {
+      ...typography.sectionTitle,
+      color: colors.text.inkSoft,
+    },
+    countBadge: {
+      paddingHorizontal: spacing.sm,
+      paddingVertical: 2,
+      borderRadius: radius.note,
+      backgroundColor: colors.status.danger,
+    },
+    countLabel: {
+      ...typography.badgeLabelStrong,
+      color: colors.text.inverse,
+    },
+  });
+}

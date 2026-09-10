@@ -1,6 +1,7 @@
-import React, { type ReactNode } from 'react';
+import React, { type ReactNode, useMemo } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { useResponsive } from '../hooks/useResponsive';
 import { colors, hairline, radius, typography } from '../theme';
 
 const WELL_SIZE = 35.999;
@@ -36,6 +37,9 @@ export function StatCard({
   footnoteColor,
   onPress,
 }: StatCardProps) {
+  const { px } = useResponsive();
+  const styles = useMemo(() => createStyles(px), [px]);
+
   return (
     <Pressable
       accessibilityRole="button"
@@ -58,51 +62,53 @@ export function StatCard({
   );
 }
 
-const styles = StyleSheet.create({
-  card: {
-    flex: 1,
-    padding: 16.755,
-    justifyContent: 'center',
-    borderRadius: radius.card,
-    borderWidth: hairline,
-    borderColor: colors.border.hairline,
-    backgroundColor: colors.surface,
-  },
-  pressed: {
-    opacity: 0.8,
-  },
-  top: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  well: {
-    width: WELL_SIZE,
-    height: WELL_SIZE,
-    borderRadius: radius.well,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  badge: {
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: radius.chipSmall,
-  },
-  badgeLabel: {
-    ...typography.badgeLabel,
-  },
-  value: {
-    ...typography.dashboardTitle,
-    color: colors.text.inkSoft,
-    paddingTop: 12,
-  },
-  caption: {
-    ...typography.cardCaption,
-    color: colors.text.secondary,
-    paddingTop: 2,
-  },
-  footnote: {
-    ...typography.cardCaption,
-    paddingTop: 3,
-  },
-});
+function createStyles(px: (value: number) => number) {
+  return StyleSheet.create({
+    card: {
+      flex: 1,
+      padding: px(16.755),
+      justifyContent: 'center',
+      borderRadius: radius.card,
+      borderWidth: hairline,
+      borderColor: colors.border.hairline,
+      backgroundColor: colors.surface,
+    },
+    pressed: {
+      opacity: 0.8,
+    },
+    top: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+    },
+    well: {
+      width: px(WELL_SIZE),
+      height: px(WELL_SIZE),
+      borderRadius: radius.well,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    badge: {
+      paddingHorizontal: px(8),
+      paddingVertical: px(3),
+      borderRadius: radius.chipSmall,
+    },
+    badgeLabel: {
+      ...typography.badgeLabel,
+    },
+    value: {
+      ...typography.dashboardTitle,
+      color: colors.text.inkSoft,
+      paddingTop: 12,
+    },
+    caption: {
+      ...typography.cardCaption,
+      color: colors.text.secondary,
+      paddingTop: 2,
+    },
+    footnote: {
+      ...typography.cardCaption,
+      paddingTop: 3,
+    },
+  });
+}

@@ -13,7 +13,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { SmsBoltIcon } from '../components/icons/SmsBoltIcon';
 import { SunStarIcon } from '../components/icons/SunStarIcon';
 import { InfoNote } from '../components/InfoNote';
-import { requestLoginOtp, verifyLoginOtp } from '../services/auth';
+import { requestLoginOtp, verifyLoginOtp, type AuthAstrologer } from '../services/auth';
 import { OtpInput } from '../components/OtpInput';
 import { PrimaryButton } from '../components/PrimaryButton';
 import { colors, radius, spacing, typography } from '../theme';
@@ -30,8 +30,13 @@ type OtpVerificationScreenProps = {
   mobile?: string;
   /** The ten digits the code actually went to, for the verify call. */
   phone?: string;
-  /** Called once the code checks out and the session is stored. */
-  onVerified?: () => void;
+  /**
+   * Called once the code checks out and the session is stored. Handed the
+   * signed-in astrologer, so the caller can route an unapproved application
+   * differently from one already live — no `astrologer` when a test mounts
+   * this screen standalone with no `phone` to verify against.
+   */
+  onVerified?: (astrologer?: AuthAstrologer) => void;
   onResend?: () => void;
   /**
    * The real code, while there is no SMS provider. Shown on screen and filled
@@ -91,8 +96,8 @@ export function OtpVerificationScreen({
     setError(null);
 
     try {
-      await verifyLoginOtp({ channel: 'phone', phone }, code);
-      onVerified?.();
+      const session = await verifyLoginOtp({ channel: 'phone', phone }, code);
+      onVerified?.(session.astrologer);
     } catch (caught) {
       setError(
         (caught as Error)?.message ?? 'Something went wrong. Please try again.',

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo } from 'react';
 import { ScrollView, StatusBar, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -7,6 +7,8 @@ import { IncomingRequestPopup } from '../components/IncomingRequestPopup';
 import { RequestCard, type ConsultationRequest } from '../components/RequestCard';
 import { SectionHeader } from '../components/SectionHeader';
 import { useApi } from '../hooks/useApi';
+import { useIncomingRequests } from '../hooks/useIncomingRequests';
+import { useResponsive } from '../hooks/useResponsive';
 import * as api from '../services/api';
 import { requestsFromApi } from '../utils/requests';
 import { colors, hairline, spacing, typography } from '../theme';
@@ -29,13 +31,19 @@ export function ConsultScreen({
   onAcceptRequest,
 }: ConsultScreenProps) {
   const insets = useSafeAreaInsets();
+  const { px, contentWidth, isTablet } = useResponsive();
+  const styles = useMemo(
+    () => createStyles(px, contentWidth, isTablet),
+    [px, contentWidth, isTablet],
+  );
 
-  /** The queue, read from the server. */
-  const queue = useApi(() => api.fetchRequests(), []);
+  /** The queue, live via the account's socket room. */
+  const { requests, reviewing, setReviewing, answer } = useIncomingRequests({
+    onAccepted: onAcceptRequest,
+  });
   /** Requests that were never answered — the "missed" list. */
   const missed = useApi(() => api.fetchConsultations('missed'), []);
 
-  const requests = requestsFromApi(queue.data ?? []);
   const missedCalls = requestsFromApi(
     (missed.data ?? []).map((row: any) => ({
       chatId: row.id,
@@ -46,23 +54,6 @@ export function ConsultScreen({
       requestedAt: row.createdAt,
     })),
   );
-
-  const [reviewing, setReviewing] = useState<ConsultationRequest | null>(null);
-
-  const answer = async (request: ConsultationRequest, accepted: boolean) => {
-    setReviewing(null);
-
-    try {
-      if (accepted) {
-        await api.acceptRequest(request.id);
-        onAcceptRequest?.(request);
-      } else {
-        await api.rejectRequest(request.id, 'Declined');
-      }
-    } finally {
-      await queue.reload();
-    }
-  };
 
   return (
     <View style={styles.screen}>
@@ -110,32 +101,40 @@ export function ConsultScreen({
   );
 }
 
-const styles = StyleSheet.create({
-  screen: {
-    flex: 1,
-    backgroundColor: colors.canvas,
-  },
-  header: {
-    backgroundColor: colors.surface,
-    paddingHorizontal: spacing.lg,
-    paddingBottom: 20.755,
-    borderBottomWidth: hairline,
-    borderBottomColor: colors.border.hairline,
-  },
-  title: {
-    ...typography.wizardTitle,
-    fontSize: 22,
-    lineHeight: 33,
-    color: colors.text.inkSoft,
-    paddingTop: spacing.md,
-  },
-  content: {
-    paddingTop: spacing.xl,
-    paddingHorizontal: spacing.lg,
-    paddingBottom: spacing.xl,
-    gap: spacing.lg,
-  },
-  section: {
-    gap: spacing.md,
-  },
-});
+function createStyles(px: (value: number) => number, contentWidth: number, isTablet: boolean) {
+  return StyleSheet.create({
+    screen: {
+      flex: 1,
+      backgroundColor: colors.canvas,
+    },
+    header: {
+      backgroundColor: colors.surface,
+      paddingHorizontal: spacing.lg,
+      paddingBottom: px(20.755),
+      borderBottomWidth: hairline,
+      borderBottomColor: colors.border.hairline,
+    },
+    title: {
+      ...typography.wizardTitle,
+      alignSelf: 'center',
+      width: '100%',
+      maxWidth: isTablet ? contentWidth : undefined,
+      fontSize: 22,
+      lineHeight: 33,
+      color: colors.text.inkSoft,
+      paddingTop: spacing.md,
+    },
+    content: {
+      alignSelf: 'center',
+      width: '100%',
+      maxWidth: isTablet ? contentWidth : undefined,
+      paddingTop: spacing.xl,
+      paddingHorizontal: spacing.lg,
+      paddingBottom: spacing.xl,
+      gap: spacing.lg,
+    },
+    section: {
+      gap: spacing.md,
+    },
+  });
+}
