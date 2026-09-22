@@ -335,6 +335,8 @@ type ConsultationHandlers = {
     balanceRemaining?: number;
   }) => void;
   onEnded?: (payload: { chatId: string; endedBy: string; reason?: string; durationSeconds: number; amountCharged: number }) => void;
+  onPackageWarning?: (payload: Record<string, unknown>) => void;
+  onPerMinuteStarted?: (payload: Record<string, unknown>) => void;
 };
 
 /** Whatever the screen currently under test subscribed with — lets a test fire a live event (see fireTick/fireLowBalance below) the same way the real socket would. */
@@ -364,6 +366,8 @@ export const fireLowBalance = (payload: {
   minutesRemaining?: number;
   balanceRemaining?: number;
 }) => consultationHandlers?.onLowBalance?.(payload);
+/** Test-only: package bookings — the package ran out and the session is now per-minute. */
+export const firePerMinuteStarted = (payload: Record<string, unknown>) => consultationHandlers?.onPerMinuteStarted?.(payload);
 export const connectLiveUpdates = () => null;
 export const disconnectLiveUpdates = () => {};
 /** Only the missed list is asked for by a screen; everything else is empty. */

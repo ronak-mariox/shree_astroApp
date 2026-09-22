@@ -19,6 +19,13 @@ import { useApi } from '../hooks/useApi';
 import { useResponsive } from '../hooks/useResponsive';
 import * as api from '../services/api';
 import type { KundliDraft } from '../data/kundli';
+import {
+  clockOffsetMs,
+  elapsedSeconds as elapsedOnServerClock,
+  formatClock,
+  secondsUntil,
+  type PackageView,
+} from '../utils/sessionClock';
 import { colors, spacing, typography } from '../theme';
 
 type ConsultationChatScreenProps = {
@@ -48,8 +55,7 @@ const timeNow = () =>
     .toUpperCase();
 
 /** "04:58 mins" — how the header prints the running session. */
-const elapsedLabel = (seconds: number) =>
-  `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')} mins`;
+const elapsedLabel = (seconds: number) => `${formatClock(seconds)} mins`;
 
 /**
  * The live consultation. The header's chart button opens the generate-kundli
@@ -108,6 +114,28 @@ export function ConsultationChatScreen({
    */
   const pausedSinceOverride = useRef<number | null>(null);
 
+  /**
+   * How far the server's clock is ahead of this phone's — taken from every
+   * state read and (re)join. The header counts on the server's clock, so it
+   * shows exactly what the seeker's header shows even when either phone's
+   * clock is wrong.
+   */
+  const clockOffset = useRef(0);
+  /**
+   * Package bookings only: where the package stands. While package time
+   * lasts the header counts it DOWN — the same "mm:ss left" the seeker sees —
+   * and once it runs out it counts the session up like any other.
+   */
+  const [pkg, setPkg] = useState<PackageView>();
+  useEffect(() => {
+    if (state.data?.serverTime) {
+      clockOffset.current = clockOffsetMs(state.data.serverTime);
+    }
+    if (state.data?.billingMode === 'package' && state.data.package) {
+      setPkg(state.data.package);
+    }
+  }, [state.data]);
+
   useEffect(() => {
     if (sessionPaused) {
       pausedSince.current = pausedSinceOverride.current ?? Date.now();
@@ -144,7 +172,7 @@ export function ConsultationChatScreen({
         /** Frozen — hold the last value rather than keep advancing it. */
         return;
       }
-      setElapsedSeconds(Math.max(0, Math.floor((Date.now() - started - pausedAccumMs.current) / 1000)));
+      setElapsedSeconds(elapsedOnServerClock(startedAt, clockOffset.current, pausedAccumMs.current));
     };
     tick();
     const timer = setInterval(tick, 1000);
@@ -198,6 +226,12 @@ export function ConsultationChatScreen({
        * reconnects.
        */
       onRejoinState: payload => {
+        if (payload.serverTime) {
+          clockOffset.current = clockOffsetMs(payload.serverTime);
+        }
+        if (payload.package) {
+          setPkg(payload.package);
+        }
         if (payload.paused) {
           pausedSinceOverride.current = payload.pausedSince ? new Date(payload.pausedSince).getTime() : Date.now();
         }
@@ -213,6 +247,14 @@ export function ConsultationChatScreen({
       onLowBalance: payload => {
         if (payload.paused === true) setSessionPaused(true);
         else if (payload.paused === false) setSessionPaused(false);
+      },
+      onPackageWarning: payload => {
+        clockOffset.current = clockOffsetMs(payload.serverTime);
+        setPkg(current => (current ? { ...current, endsAt: payload.endsAt } : current));
+      },
+      /** The package ran out: from here the header counts the session up, same as the seeker's. */
+      onPerMinuteStarted: payload => {
+        setPkg(current => ({ ...(current ?? {}), phase: 'per_minute', perMinuteStartedAt: payload.perMinuteStartedAt }));
       },
       onEnded: () => onLeave?.(),
     });
@@ -275,13 +317,20 @@ export function ConsultationChatScreen({
     }
   };
 
+  /** Package time left, on the server's clock — recomputed on every render, which the running clock above triggers once a second. */
+  const packageSecondsLeft = pkg?.phase === 'package' ? secondsUntil(pkg.endsAt, clockOffset.current) : 0;
+
   return (
     <View style={styles.screen}>
       <StatusBar barStyle="dark-content" />
 
       <ChatHeader
         name={peerName}
-        elapsed={elapsedLabel(elapsedSeconds)}
+        elapsed={
+          !readOnly && pkg?.phase === 'package'
+            ? `${formatClock(packageSecondsLeft)} left`
+            : elapsedLabel(elapsedSeconds)
+        }
         onOpenKundli={() => setGenerating(true)}
         onLeave={() => (readOnly ? onLeave?.() : setLeaving(true))}
       />
