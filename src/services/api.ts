@@ -30,6 +30,7 @@ import { type GalleryPhoto } from '../data/gallery';
 import { type PriceChangeDraft, type ServiceRate, validatePriceChange } from '../data/priceChange';
 import { type AstrologerProfile } from '../data/profile';
 import { type Review } from '../data/reviews';
+import type { PackageView } from '../utils/sessionClock';
 import { validateDispute, type Dispute } from '../data/support';
 import {
   DUMMY_BANK_ACCOUNTS,
@@ -729,6 +730,12 @@ export type IncomingRequest = {
     minutesBooked?: number;
   };
   ratePerMinute: number;
+  /** 'package' when the seeker booked a fixed-length package instead of per-minute. */
+  billingMode?: 'per_minute' | 'package';
+  packageMinutes?: number;
+  /** What the seeker pays for the package — after any admin discount. */
+  packagePrice?: number;
+  packageDiscountPercent?: number;
   requestedAt: string;
 };
 
@@ -796,6 +803,11 @@ export async function getChatState(chatId: string) {
     amountCharged: number;
     endedAt?: string;
     endReason?: string;
+    billingMode?: 'per_minute' | 'package';
+    /** Package bookings only — the server-side package clock. */
+    package?: PackageView;
+    /** The server's clock at the time of this read — the header clock counts against it, not the phone's. */
+    serverTime?: string;
   };
 }
 

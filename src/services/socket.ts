@@ -15,6 +15,8 @@
 
 import { io, type Socket } from 'socket.io-client';
 
+import type { PackageView } from '../utils/sessionClock';
+
 import { API_BASE_URL } from './client';
 import { getAccessToken } from './session';
 
@@ -50,6 +52,9 @@ export const CHAT_EVENTS = {
   REJECTED: 'chat:rejected',
   MISSED: 'chat:missed',
   CANCELLED: 'chat:cancelled',
+  /** Package bookings: ~30s of package time left; then the package ran out and the session is billed per minute. */
+  PACKAGE_WARNING: 'chat:package_warning',
+  PER_MINUTE_STARTED: 'chat:per_minute_started',
 } as const;
 
 export const roomFor = (chatId: string) => `chat:${chatId}`;
@@ -132,6 +137,10 @@ export function joinChatRoom(
   seq: number;
   unread: number;
   messages: unknown[];
+  /** Package bookings only — the true current package clock, recovered on every (re)join. */
+  package?: PackageView;
+  /** The server's clock at the time of the join — header clocks count against it, not the phone's. */
+  serverTime?: string;
   error?: string;
 }> {
   return new Promise((resolve, reject) => {
@@ -211,6 +220,8 @@ type LowBalancePayload = {
   balanceRemaining?: number;
 };
 type EndedPayload = { chatId: string; endedBy: string; reason?: string; durationSeconds: number; amountCharged: number };
+type PackageWarningPayload = { chatId: string; endsAt: string; serverTime: string; secondsLeft: number; ratePerMinute: number };
+type PerMinuteStartedPayload = { chatId: string; perMinuteStartedAt: string; serverTime: string; ratePerMinute: number };
 
 /**
  * Everything a live consultation screen needs while it is open: the
@@ -236,7 +247,17 @@ export function subscribeToChat(
      * was briefly disconnected; this is what lets the screen recover the
      * real answer instead of trusting whatever it last happened to see.
      */
-    onRejoinState?: (payload: { status: string; paused: boolean; pausedSince: string | null }) => void;
+    onRejoinState?: (payload: {
+      status: string;
+      paused: boolean;
+      pausedSince: string | null;
+      package?: PackageView;
+      serverTime?: string;
+    }) => void;
+    /** Package bookings: ~30s of package time left. */
+    onPackageWarning?: (payload: PackageWarningPayload) => void;
+    /** Package bookings: the package ran out; the session is now billed per minute. */
+    onPerMinuteStarted?: (payload: PerMinuteStartedPayload) => void;
   },
 ): () => void {
   const active = connectSocket();
@@ -249,7 +270,13 @@ export function subscribeToChat(
   const rejoin = () => {
     joinChatRoom(chatId, seq)
       .then(state => {
-        handlers.onRejoinState?.({ status: state.status, paused: state.paused, pausedSince: state.pausedSince });
+        handlers.onRejoinState?.({
+          status: state.status,
+          paused: state.paused,
+          pausedSince: state.pausedSince,
+          package: state.package,
+          serverTime: state.serverTime,
+        });
         for (const message of state.messages as ChatMessage[]) {
           seq = Math.max(seq, message.seq ?? seq);
           handlers.onMessage?.(message);
@@ -280,10 +307,19 @@ export function subscribeToChat(
     if (payload?.chatId === chatId) handlers.onEnded?.(payload);
   };
 
+  const onPackageWarning = (payload: PackageWarningPayload) => {
+    if (payload?.chatId === chatId) handlers.onPackageWarning?.(payload);
+  };
+  const onPerMinuteStarted = (payload: PerMinuteStartedPayload) => {
+    if (payload?.chatId === chatId) handlers.onPerMinuteStarted?.(payload);
+  };
+
   active.on(CHAT_EVENTS.NEW, onMessage);
   active.on(CHAT_EVENTS.TICK, onTick);
   active.on(CHAT_EVENTS.LOW_BALANCE, onLowBalance);
   active.on(CHAT_EVENTS.ENDED, onEnded);
+  active.on(CHAT_EVENTS.PACKAGE_WARNING, onPackageWarning);
+  active.on(CHAT_EVENTS.PER_MINUTE_STARTED, onPerMinuteStarted);
 
   return () => {
     active.off('connect', rejoin);
@@ -291,6 +327,8 @@ export function subscribeToChat(
     active.off(CHAT_EVENTS.TICK, onTick);
     active.off(CHAT_EVENTS.LOW_BALANCE, onLowBalance);
     active.off(CHAT_EVENTS.ENDED, onEnded);
+    active.off(CHAT_EVENTS.PACKAGE_WARNING, onPackageWarning);
+    active.off(CHAT_EVENTS.PER_MINUTE_STARTED, onPerMinuteStarted);
     leaveChatRoom(chatId);
   };
 }

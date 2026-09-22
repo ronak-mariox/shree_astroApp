@@ -47,6 +47,8 @@ export function requestsFromApi(
       | { dateOfBirth?: string; place?: { formatted?: string; city?: string } }
       | undefined;
     const minutes = request.intake?.minutesBooked ?? 0;
+    /** A package booking: its length and what the seeker actually pays for it (after any admin discount) — not minutes × rate. */
+    const isPackage = request.billingMode === 'package' && Boolean(request.packageMinutes);
 
     return {
       id: request.chatId,
@@ -66,8 +68,16 @@ export function requestsFromApi(
         birthPlace: birth?.place?.formatted ?? birth?.place?.city ?? '—',
         issue: request.intake?.question ?? titleOf(request.intake?.topic) ?? '—',
         rate: `₹ ${request.ratePerMinute}/min`,
-        duration: minutes ? `${minutes} min` : '—',
-        earnings: minutes ? `₹ ${minutes * request.ratePerMinute}` : '—',
+        duration: isPackage
+          ? `${request.packageMinutes} min package${request.packageDiscountPercent ? ` (${request.packageDiscountPercent}% off)` : ''}`
+          : minutes
+            ? `${minutes} min`
+            : '—',
+        earnings: isPackage
+          ? `₹ ${request.packagePrice ?? (request.packageMinutes ?? 0) * request.ratePerMinute}`
+          : minutes
+            ? `₹ ${minutes * request.ratePerMinute}`
+            : '—',
       },
     };
   });
