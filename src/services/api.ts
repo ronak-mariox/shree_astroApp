@@ -31,6 +31,7 @@ import { type PriceChangeDraft, type ServiceRate, validatePriceChange } from '..
 import { type AstrologerProfile } from '../data/profile';
 import { type Review } from '../data/reviews';
 import type { PackageView } from '../utils/sessionClock';
+import type { SeekerKundli } from '../data/kundli';
 import { validateDispute, type Dispute } from '../data/support';
 import {
   DUMMY_BANK_ACCOUNTS,
@@ -769,6 +770,18 @@ export async function rejectRequest(chatId: string, reason?: string) {
   }
   const { data } = await client.post(`/chats/${chatId}/reject`, { reason });
   return data;
+}
+
+/**
+ * The seeker's already-generated kundli for this consultation (GET
+ * /chats/:chatId/kundli) — what the chat header's kundli button and the
+ * intake's "Generate Kundli" open. Read-only; never generates (or pays for)
+ * a new chart.
+ */
+export async function fetchSeekerKundli(chatId: string): Promise<SeekerKundli> {
+  if (USE_DUMMY_CONSULT) return { found: false };
+  const { data } = await client.get(`/chats/${chatId}/kundli`);
+  return data as SeekerKundli;
 }
 
 /**

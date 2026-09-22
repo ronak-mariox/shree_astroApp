@@ -18,7 +18,11 @@ import { LeaveChatDialog } from '../components/LeaveChatDialog';
 import { useApi } from '../hooks/useApi';
 import { useResponsive } from '../hooks/useResponsive';
 import * as api from '../services/api';
-import type { KundliDraft } from '../data/kundli';
+import {
+  draftFromBirthDetails,
+  draftMatchesBirthDetails,
+  type KundliDraft,
+} from '../data/kundli';
 import {
   clockOffsetMs,
   elapsedSeconds as elapsedOnServerClock,
@@ -303,13 +307,46 @@ export function ConsultationChatScreen({
 
   const [draft, setDraft] = useState('');
   const [generating, setGenerating] = useState(false);
-  /** Whose chart is on screen; `null` while no kundli has been generated. */
+  /** Whose chart the details sheet is open for; `null` while it's closed. */
   const [kundliFor, setKundliFor] = useState<string | null>(null);
+  /** True when the form was submitted for someone other than the saved chart's person — that chart is then not shown for them. */
+  const [kundliMismatch, setKundliMismatch] = useState(false);
   const [leaving, setLeaving] = useState(false);
 
+  /**
+   * The seeker's already-generated kundli for this consultation, from the
+   * database (GET /chats/:chatId/kundli) — read once when the chat opens.
+   */
+  const seekerKundli = useApi(
+    () => (chatId ? api.fetchSeekerKundli(chatId) : Promise.resolve(null)),
+    [chatId],
+    { skip: !chatId },
+  );
+  const savedKundli = seekerKundli.data ?? undefined;
+  /** Whose chart it is: the saved chart's name, else the intake's, else the peer. */
+  const kundliName = savedKundli?.birthDetails?.fullName || peerName;
+
+  /** The header's kundli button: straight to the seeker's saved kundli. */
+  const openSavedKundli = () => {
+    setKundliMismatch(false);
+    setKundliFor(kundliName);
+  };
+
+  /** "Generate Kundli" on the intake: the form, already filled in with the seeker's stored details. */
+  const openKundliForm = () => {
+    setKundliFor(null);
+    setGenerating(true);
+  };
+
+  /**
+   * The form submitted: show the saved kundli — but only if the form still
+   * describes that person (same date and time of birth). Details edited to
+   * someone else get an honest "no saved kundli", never another person's chart.
+   */
   const generate = (details: KundliDraft) => {
     setGenerating(false);
-    setKundliFor(details.name.trim() || peerName);
+    setKundliMismatch(Boolean(savedKundli?.found) && !draftMatchesBirthDetails(details, savedKundli?.birthDetails));
+    setKundliFor(details.name.trim() || kundliName);
   };
 
   const send = async () => {
@@ -360,7 +397,7 @@ export function ConsultationChatScreen({
               ? `${formatClock(packageSecondsLeft)} left`
               : elapsedLabel(elapsedSeconds)
         }
-        onOpenKundli={() => setGenerating(true)}
+        onOpenKundli={openSavedKundli}
         onLeave={() => (readOnly ? onLeave?.() : setLeaving(true))}
       />
 
@@ -373,7 +410,7 @@ export function ConsultationChatScreen({
             <ChatBubble
               key={message.id}
               message={message}
-              onAction={() => setGenerating(true)}
+              onAction={openKundliForm}
             />
           ))}
         </ScrollView>
@@ -403,12 +440,27 @@ export function ConsultationChatScreen({
         visible={generating}
         onDismiss={() => setGenerating(false)}
         onGenerate={generate}
+        initialDraft={draftFromBirthDetails(savedKundli?.birthDetails)}
+        note={
+          savedKundli?.found
+            ? "The seeker's saved birth details — Generate shows their kundli."
+            : savedKundli
+              ? 'Birth details from the seeker\'s intake. They have no saved kundli for these yet.'
+              : undefined
+        }
       />
 
       <KundliDetailsSheet
         visible={kundliFor !== null}
-        name={kundliFor ?? peerName}
-        onClose={() => setKundliFor(null)}
+        name={kundliFor ?? kundliName}
+        kundli={savedKundli}
+        loading={seekerKundli.loading}
+        mismatch={kundliMismatch}
+        onOpenForm={openKundliForm}
+        onClose={() => {
+          setKundliFor(null);
+          setKundliMismatch(false);
+        }}
       />
 
       <LeaveChatDialog
