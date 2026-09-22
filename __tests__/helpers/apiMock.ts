@@ -316,6 +316,36 @@ const settleRequest = (chatId: string) => {
 export const acceptRequest = async (chatId: string) => settleRequest(chatId);
 export const rejectRequest = async (chatId: string) => settleRequest(chatId);
 export const endConsultation = async () => ({});
+/**
+ * The seeker's saved kundli for a consultation (GET /chats/:chatId/kundli) —
+ * a jest.fn so a test can swap in "no saved kundli".
+ */
+export const SEEKER_KUNDLI = {
+  found: true as const,
+  profileId: 'bp-1',
+  status: 'ready',
+  birthDetails: { fullName: 'mithu', gender: 'male', dateOfBirth: '1999-02-08T00:00:00.000Z', timeOfBirth: '12:45', place: 'Delhi, India' },
+  chart: { url: 'https://example.com/chart-bp-1.svg' },
+  lagna: 'Taurus',
+  nakshatra: 'Rohini',
+  keyPositions: [
+    { label: 'Lagna', sign: 'Taurus' },
+    { label: 'Sun', sign: 'Capricorn' },
+    { label: 'Moon', sign: 'Taurus' },
+  ],
+  planetaryPositions: [
+    { planet: 'Sun', sign: 'Capricorn', house: 9, isRetrograde: false },
+    { planet: 'Moon', sign: 'Taurus', house: 1, isRetrograde: false },
+    { planet: 'Saturn', sign: 'Aries', house: 12, isRetrograde: true },
+  ],
+  mahadasha: [
+    { lord: 'Moon', start: '1995-01-01T00:00:00.000Z', end: '2005-01-01T00:00:00.000Z', current: false },
+    { lord: 'Mars', start: '2005-01-01T00:00:00.000Z', end: '2012-01-01T00:00:00.000Z', current: false },
+    { lord: 'Rahu', start: '2012-01-01T00:00:00.000Z', end: '2030-01-01T00:00:00.000Z', current: true },
+  ],
+};
+export const fetchSeekerKundli = jest.fn(async (_chatId: string) => SEEKER_KUNDLI as unknown);
+
 /** The admin's support contact (public GET /settings). */
 export const fetchSupportContact = async () => ({ email: 'support@shreeastro.com' });
 

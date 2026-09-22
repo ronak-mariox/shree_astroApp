@@ -15,7 +15,9 @@ import { GenerateKundliSheet } from '../src/components/GenerateKundliSheet';
 import { KundliDetailsSheet } from '../src/components/KundliDetailsSheet';
 import { LeaveChatDialog } from '../src/components/LeaveChatDialog';
 
-import { KUNDLI_TABLE_ROWS, KUNDLI_TABS } from '../src/data/kundli';
+import { KUNDLI_TABS } from '../src/data/kundli';
+import * as api from '../src/services/api';
+import { SEEKER_KUNDLI } from './helpers/apiMock';
 import { ConsultationChatScreen } from '../src/screens/ConsultationChatScreen';
 
 const METRICS = {
@@ -273,102 +275,139 @@ test('the cross asks before leaving, and Stay keeps the chat', async () => {
   expect(dialog().props.visible).toBe(false);
 });
 
-test('the chart button opens the generate-kundli form', async () => {
-  const tree = await render(<ConsultationChatScreen chatId="chat-1" peerName="Astro Rakesh" />);
+/** Lets the screen's GET /chats/:chatId/kundli settle. */
+const settle = async () => {
+  await act(async () => {
+    for (let i = 0; i < 5; i += 1) await Promise.resolve();
+  });
+};
 
-  const form = () => tree.root.findByType(GenerateKundliSheet);
-  expect(form().props.visible).toBe(false);
+test('the header\'s kundli button shows the seeker\'s saved kundli straight away', async () => {
+  const tree = await render(<ConsultationChatScreen chatId="chat-1" peerName="Astro Rakesh" />);
+  await settle();
+  expect((api as any).fetchSeekerKundli).toHaveBeenCalledWith('chat-1');
 
   await act(() => {
     byLabel(tree, 'Kundli details').props.onPress();
   });
-
-  expect(form().props.visible).toBe(true);
-  const text = textOf(tree);
-  expect(text).toContain('Generate kundli');
-  for (const label of ['Name', 'Gender', 'Day', 'Month', 'Year', 'Hour', 'Minute', 'Birth Place']) {
-    expect(text).toContain(label);
-  }
-  expect(text).toContain('Generate Kundli');
-});
-
-test('the Generate Kundli bubble action opens the same form', async () => {
-  const tree = await render(<ConsultationChatScreen chatId="chat-1" peerName="Astro Rakesh" />);
-
-  await act(() => {
-    tree.root.findAllByType(ChatBubble)[0].props.onAction();
-  });
-  expect(tree.root.findByType(GenerateKundliSheet).props.visible).toBe(true);
-});
-
-test('generating hands the filled name to the details sheet', async () => {
-  const tree = await render(<ConsultationChatScreen chatId="chat-1" peerName="Astro Rakesh" />);
-
-  const details = () => tree.root.findByType(KundliDetailsSheet);
-  expect(details().props.visible).toBe(false);
-
-  await act(() => {
-    byLabel(tree, 'Kundli details').props.onPress();
-  });
-  await act(() => {
-    tree.root.findByType(GenerateKundliSheet).props.onGenerate({
-      name: 'mithu',
-      gender: 'Male',
-      day: '08',
-      month: 'February',
-      year: '1999',
-      hour: '12',
-      minute: '45',
-      birthPlace: 'Delhi, India',
-    });
-  });
-
   expect(tree.root.findByType(GenerateKundliSheet).props.visible).toBe(false);
-  expect(details().props.visible).toBe(true);
-  expect(textOf(tree)).toContain('Kundli Details of mithu');
+  const details = tree.root.findByType(KundliDetailsSheet);
+  expect(details.props.visible).toBe(true);
+  expect(details.props.kundli).toEqual(SEEKER_KUNDLI);
+  const text = textOf(tree);
+  expect(text).toContain('Kundli Details of mithu');
+  expect(text).toContain('Lagna: Taurus');
+  expect(text).toContain('Nakshatra: Rohini');
 });
 
-test('the details sheet opens on Lagna Chart and tabulates dasha and planets', async () => {
+test('the details sheet shows the saved chart, birth details, dasha and planets', async () => {
   const tree = await render(<ConsultationChatScreen chatId="chat-1" peerName="Astro Rakesh" />);
-
+  await settle();
   await act(() => {
     byLabel(tree, 'Kundli details').props.onPress();
-  });
-  await act(() => {
-    tree.root
-      .findByType(GenerateKundliSheet)
-      .props.onGenerate({ name: 'mithu' });
   });
 
   const sheet = () => tree.root.findByType(KundliDetailsSheet);
   const tabs = () => pressablesWithRole(sheet(), 'tab');
+  expect(tabs().map(tab => tab.props.accessibilityLabel)).toEqual(KUNDLI_TABS.map(tab => tab.label));
+  expect(tabs().map(tab => tab.props.accessibilityState.selected)).toEqual([true, false, false, false]);
+  // The stored chart image, not a bundled picture.
+  const chart = sheet().findAll(node => node.props.accessibilityLabel === 'Lagna chart')[0];
+  expect(chart.props.source).toEqual({ uri: SEEKER_KUNDLI.chart.url });
 
-  expect(tabs().map(tab => tab.props.accessibilityLabel)).toEqual(
-    KUNDLI_TABS.map(tab => tab.label),
-  );
-  expect(tabs().map(tab => tab.props.accessibilityState.selected)).toEqual([
-    true,
-    false,
-    false,
-    false,
-  ]);
+  await act(() => {
+    tabs()[1].props.onPress();
+  });
+  let text = textOf(tree);
+  expect(text).toContain('08 Feb 1999');
+  expect(text).toContain('12:45 PM');
+  expect(text).toContain('Delhi, India');
+  expect(text).toContain('Capricorn');
 
   await act(() => {
     tabs()[2].props.onPress();
   });
-  let text = textOf(tree);
+  text = textOf(tree);
   expect(text).toContain('Start Date');
-  expect(text).toContain('End Date');
-  for (const row of KUNDLI_TABLE_ROWS) {
-    expect(text).toContain(row.planet);
-    expect(text).toContain(row.longitude);
-  }
+  expect(text).toContain('Rahu (now)');
+  expect(text).toContain('01 Jan 2012');
 
   await act(() => {
     tabs()[3].props.onPress();
   });
   text = textOf(tree);
-  expect(text).toContain('Planets');
   expect(text).toContain('Rashi');
-  expect(text).toContain('Longitude');
+  expect(text).toContain('House');
+  expect(text).toContain('Saturn (R)');
+  expect(text).toContain('Aries');
 });
+
+test('the intake\'s Generate Kundli opens the form pre-filled with the seeker\'s saved details, and Generate shows their kundli', async () => {
+  const tree = await render(<ConsultationChatScreen chatId="chat-1" peerName="Astro Rakesh" />);
+  await settle();
+
+  await act(() => {
+    tree.root.findAllByType(ChatBubble)[0].props.onAction();
+  });
+  const form = () => tree.root.findByType(GenerateKundliSheet);
+  expect(form().props.visible).toBe(true);
+  expect(form().props.initialDraft).toEqual({
+    name: 'mithu', gender: 'Male', day: '08', month: 'February', year: '1999', hour: '12', minute: '45', birthPlace: 'Delhi, India',
+  });
+  const text = textOf(tree);
+  expect(text).toContain("The seeker's saved birth details");
+  const nameField = tree.root.findAll(node => node.props.accessibilityLabel === 'Name' && typeof node.props.onChangeText === 'function')[0];
+  expect(nameField.props.value).toBe('mithu');
+
+  await act(() => {
+    form().props.onGenerate(form().props.initialDraft);
+  });
+  expect(form().props.visible).toBe(false);
+  expect(tree.root.findByType(KundliDetailsSheet).props.visible).toBe(true);
+  expect(tree.root.findByType(KundliDetailsSheet).props.mismatch).toBe(false);
+  expect(textOf(tree)).toContain('Lagna: Taurus');
+});
+
+test('details edited to someone else never show the seeker\'s chart for them', async () => {
+  const tree = await render(<ConsultationChatScreen chatId="chat-1" peerName="Astro Rakesh" />);
+  await settle();
+  await act(() => {
+    tree.root.findAllByType(ChatBubble)[0].props.onAction();
+  });
+  await act(() => {
+    tree.root.findByType(GenerateKundliSheet).props.onGenerate({
+      name: 'Someone', gender: 'Female', day: '01', month: 'January', year: '2000', hour: '10', minute: '00', birthPlace: 'Mumbai, India',
+    });
+  });
+  const text = textOf(tree);
+  expect(text).toContain('No saved kundli');
+  expect(text).toContain("don't match the seeker's saved kundli");
+  expect(text).not.toContain('Lagna: Taurus');
+});
+
+test('a seeker with no saved kundli: an honest empty state, and the form pre-filled from their intake', async () => {
+  (api as any).fetchSeekerKundli.mockResolvedValueOnce({
+    found: false,
+    birthDetails: { fullName: 'Priya', gender: 'female', dateOfBirth: '2000-01-01T00:00:00.000Z', timeOfBirth: '10:00', place: 'Delhi' },
+  });
+  const tree = await render(<ConsultationChatScreen chatId="chat-1" peerName="Astro Rakesh" />);
+  await settle();
+
+  await act(() => {
+    byLabel(tree, 'Kundli details').props.onPress();
+  });
+  let text = textOf(tree);
+  expect(text).toContain('Kundli Details of Priya');
+  expect(text).toContain('No saved kundli');
+  expect(text).toContain("hasn't generated a kundli");
+
+  await act(() => {
+    byLabel(tree, 'Fill birth details').props.onPress();
+  });
+  const form = tree.root.findByType(GenerateKundliSheet);
+  expect(form.props.visible).toBe(true);
+  expect(form.props.initialDraft).toEqual(expect.objectContaining({ name: 'Priya', gender: 'Female', day: '01', year: '2000' }));
+  text = textOf(tree);
+  expect(text).toContain('They have no saved kundli for these yet.');
+});
+

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Pressable,
   ScrollView,
@@ -47,6 +47,10 @@ type GenerateKundliSheetProps = {
   onDismiss: () => void;
   /** Handed the filled birth details once "Generate Kundli" is pressed. */
   onGenerate: (draft: KundliDraft) => void;
+  /** The seeker's stored birth details, to open the form already filled in. */
+  initialDraft?: KundliDraft;
+  /** A line above the fields — e.g. that these are the seeker's saved details. */
+  note?: string;
 };
 
 /**
@@ -58,8 +62,19 @@ export function GenerateKundliSheet({
   visible,
   onDismiss,
   onGenerate,
+  initialDraft,
+  note,
 }: GenerateKundliSheetProps) {
-  const [draft, setDraft] = useState<KundliDraft>(EMPTY_KUNDLI_DRAFT);
+  const [draft, setDraft] = useState<KundliDraft>(initialDraft ?? EMPTY_KUNDLI_DRAFT);
+
+  /** Each time the form opens, start from the seeker's stored details (or blank). */
+  useEffect(() => {
+    if (visible) {
+      setDraft(initialDraft ?? EMPTY_KUNDLI_DRAFT);
+    }
+    // Only an (re)opening should reset what the astrologer may have edited.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible]);
   const [picker, setPicker] = useState<PickerKey | null>(null);
 
   const set = <K extends keyof KundliDraft>(key: K, value: KundliDraft[K]) =>
@@ -89,6 +104,7 @@ export function GenerateKundliSheet({
         contentContainerStyle={styles.body}
         keyboardShouldPersistTaps="handled"
       >
+        {note !== undefined && <Text style={styles.note}>{note}</Text>}
         <View style={styles.field}>
           <Text style={styles.label}>Name</Text>
           <View style={styles.input}>
@@ -216,6 +232,10 @@ function Select({
 }
 
 const styles = StyleSheet.create({
+  note: {
+    ...typography.tableCell,
+    color: colors.text.slateMuted,
+  },
   body: {
     paddingTop: 14,
     paddingHorizontal: 18,

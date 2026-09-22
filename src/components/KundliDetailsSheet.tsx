@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import {
+  ActivityIndicator,
   Image,
   Pressable,
   ScrollView,
@@ -12,10 +13,11 @@ import { BrandGradient } from './BrandGradient';
 import { KundliSheetFrame } from './KundliSheetFrame';
 import {
   DASHA_HEADINGS,
-  KUNDLI_TABLE_ROWS,
   KUNDLI_TABS,
-  PLANET_HEADINGS,
+  formatKundliDate,
+  formatKundliTime,
   type KundliTab,
+  type SeekerKundli,
 } from '../data/kundli';
 import { colors, radius, spacing, typography } from '../theme';
 
@@ -28,10 +30,22 @@ const CHART_HEIGHT = 312;
 
 type KundliDetailsSheetProps = {
   visible: boolean;
-  /** Whose chart this is — the name the generate form was filled with. */
+  /** Whose chart this is. */
   name: string;
   onClose: () => void;
+  /** The seeker's saved kundli (GET /chats/:chatId/kundli); undefined while it loads. */
+  kundli?: SeekerKundli | null;
+  loading?: boolean;
+  /**
+   * Set when the sheet was opened for details that aren't the saved chart's
+   * person (edited in the form) — the saved chart is then NOT shown for them.
+   */
+  mismatch?: boolean;
+  /** "Fill birth details" from the empty state — opens the generate form. */
+  onOpenForm?: () => void;
 };
+
+const PLANET_TABLE_HEADINGS = ['Planet', 'Rashi', 'House'] as const;
 
 /**
  * The generated chart: the birth chart under "Lagna Chart", and the same set of
@@ -44,7 +58,12 @@ export function KundliDetailsSheet({
   visible,
   name,
   onClose,
+  kundli,
+  loading = false,
+  mismatch = false,
+  onOpenForm,
 }: KundliDetailsSheetProps) {
+  const chart = kundli?.found && !mismatch ? kundli : null;
   const [tab, setTab] = useState<KundliTab>('lagna');
 
   const close = () => {
@@ -85,28 +104,77 @@ export function KundliDetailsSheet({
         })}
       </View>
 
-      {tab === 'lagna' || tab === 'birth' ? (
+      {loading && !chart ? (
+        <View style={styles.state}>
+          <ActivityIndicator color={colors.text.slateMuted} />
+          <Text style={styles.stateText}>Loading the seeker's kundli…</Text>
+        </View>
+      ) : !chart ? (
+        <View style={styles.state}>
+          <Text style={styles.stateTitle}>No saved kundli</Text>
+          <Text style={styles.stateText}>
+            {mismatch
+              ? "These birth details don't match the seeker's saved kundli, so it isn't shown for them."
+              : `${name} hasn't generated a kundli for these birth details yet. Once they generate it in their app, it shows here.`}
+          </Text>
+          {onOpenForm && (
+            <Pressable accessibilityRole="button" accessibilityLabel="Fill birth details" onPress={onOpenForm}>
+              <Text style={styles.stateLink}>View birth details</Text>
+            </Pressable>
+          )}
+        </View>
+      ) : tab === 'lagna' ? (
         <ScrollView contentContainerStyle={styles.chartBody}>
-          <Image
-            accessibilityLabel={
-              tab === 'lagna' ? 'Lagna chart' : 'Lagna and birth chart'
-            }
-            source={require('../assets/images/lagna-chart.png')}
-            style={styles.chart}
-            resizeMode="contain"
-          />
+          {chart.chart?.url ? (
+            <Image
+              accessibilityLabel="Lagna chart"
+              source={{ uri: chart.chart.url }}
+              style={styles.chart}
+              resizeMode="contain"
+            />
+          ) : (
+            <Text style={styles.stateText}>Chart image unavailable — the details are on the other tabs.</Text>
+          )}
+          <Text style={styles.summary}>
+            Lagna: {chart.lagna ?? '—'}   ·   Nakshatra: {chart.nakshatra ?? '—'}
+          </Text>
+        </ScrollView>
+      ) : tab === 'birth' ? (
+        <ScrollView contentContainerStyle={styles.tableBody}>
+          <Row cells={['Name', chart.birthDetails?.fullName ?? name, '']} striped />
+          <Row cells={['Date of birth', formatKundliDate(chart.birthDetails?.dateOfBirth), '']} />
+          <Row cells={['Time of birth', formatKundliTime(chart.birthDetails?.timeOfBirth), '']} striped />
+          <Row cells={['Place', chart.birthDetails?.place ?? '—', '']} />
+          <Row cells={['Lagna', chart.lagna ?? '—', '']} striped />
+          <Row cells={['Nakshatra', chart.nakshatra ?? '—', '']} />
+          {(chart.keyPositions ?? [])
+            .filter(position => position.label !== 'Lagna')
+            .map((position, index) => (
+              <Row key={position.label} cells={[position.label, position.sign ?? '—', '']} striped={index % 2 === 0} />
+            ))}
+        </ScrollView>
+      ) : tab === 'dasha' ? (
+        <ScrollView contentContainerStyle={styles.tableBody}>
+          <Row cells={DASHA_HEADINGS} heading />
+          {chart.mahadasha.length === 0 ? (
+            <Text style={styles.stateText}>Dasha periods unavailable.</Text>
+          ) : (
+            chart.mahadasha.map((period, index) => (
+              <Row
+                key={`${period.lord}-${period.start}`}
+                cells={[period.current ? `${period.lord} (now)` : period.lord, formatKundliDate(period.start), formatKundliDate(period.end)]}
+                striped={index % 2 === 0}
+              />
+            ))
+          )}
         </ScrollView>
       ) : (
         <ScrollView contentContainerStyle={styles.tableBody}>
-          <Row
-            cells={tab === 'dasha' ? DASHA_HEADINGS : PLANET_HEADINGS}
-            heading
-          />
-          {KUNDLI_TABLE_ROWS.map((row, index) => (
+          <Row cells={PLANET_TABLE_HEADINGS} heading />
+          {chart.planetaryPositions.map((row, index) => (
             <Row
               key={row.planet}
-              cells={[row.planet, row.rashi, row.longitude]}
-              // Figma tints every other row from the first reading down.
+              cells={[row.isRetrograde ? `${row.planet} (R)` : row.planet, row.sign ?? '—', row.house !== undefined ? String(row.house) : '—']}
               striped={index % 2 === 0}
             />
           ))}
@@ -142,6 +210,31 @@ function Row({
 }
 
 const styles = StyleSheet.create({
+  state: {
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.xl,
+  },
+  stateTitle: {
+    ...typography.tableHeading,
+    color: colors.text.slateMuted,
+  },
+  stateText: {
+    ...typography.tableCell,
+    color: colors.text.slateMuted,
+    textAlign: 'center',
+  },
+  stateLink: {
+    ...typography.tableHeading,
+    color: colors.text.slateMuted,
+    textDecorationLine: 'underline',
+  },
+  summary: {
+    ...typography.tableHeading,
+    color: colors.text.slateMuted,
+    paddingTop: spacing.sm,
+  },
   tabs: {
     flexDirection: 'row',
     alignItems: 'center',
