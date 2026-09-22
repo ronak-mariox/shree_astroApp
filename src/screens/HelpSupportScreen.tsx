@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
+  Linking,
   Pressable,
   ScrollView,
   StatusBar,
@@ -18,6 +20,7 @@ import {
 } from '../components/icons/SupportIcons';
 import { ProfileHeader } from '../components/ProfileHeader';
 import { FAQS, ISSUE_TYPES } from '../data/support';
+import { fetchSupportContact } from '../services/api';
 import { useAppData } from '../state/AppDataProvider';
 import { colors, radius, spacing, typography } from '../theme';
 
@@ -48,6 +51,42 @@ export function HelpSupportScreen({
   const [description, setDescription] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [sent, setSent] = useState(false);
+
+  /**
+   * Quick Help's defaults when the caller doesn't hand off to a channel of
+   * its own: "Email Us" opens a mail to the support address the admin set
+   * (Settings → Support contact); "Live Chat" calls the support number if
+   * one is set — there is no in-app live chat — and otherwise says so and
+   * points at email or the dispute form below.
+   */
+  const emailSupport = async () => {
+    const { email } = await fetchSupportContact();
+    const url = `mailto:${email}?subject=${encodeURIComponent('Astrologer support request')}`;
+    try {
+      await Linking.openURL(url);
+    } catch {
+      Alert.alert('Email us', `Write to ${email} and our team will get back to you.`);
+    }
+  };
+  const liveChat = async () => {
+    const { email, phone } = await fetchSupportContact();
+    if (phone) {
+      try {
+        await Linking.openURL(`tel:${phone.replace(/\s+/g, '')}`);
+        return;
+      } catch {
+        /* fall through to the message below */
+      }
+    }
+    Alert.alert(
+      'Live chat',
+      `Live chat isn't available yet. Email ${email}, or raise a dispute below and support will reply.`,
+      [
+        { text: 'OK', style: 'cancel' },
+        { text: 'Email us', onPress: () => { emailSupport(); } },
+      ],
+    );
+  };
 
   const submit = async () => {
     setSubmitting(true);
@@ -80,7 +119,7 @@ export function HelpSupportScreen({
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="Live Chat"
-              onPress={onLiveChat}
+              onPress={onLiveChat ?? liveChat}
               style={({ pressed }) => [
                 styles.quickHelpButton,
                 pressed && styles.pressed,
@@ -93,7 +132,7 @@ export function HelpSupportScreen({
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="Email Us"
-              onPress={onEmailUs}
+              onPress={onEmailUs ?? emailSupport}
               style={({ pressed }) => [
                 styles.quickHelpButton,
                 pressed && styles.pressed,

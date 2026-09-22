@@ -54,6 +54,9 @@ type DashboardScreenProps = {
   activeTab?: TabKey;
   onSelectTab?: (tab: TabKey) => void;
   onViewPerformance?: () => void;
+  /** "Today's Earnings" card — opens the wallet's earnings and ledger. */
+  onViewEarnings?: () => void;
+  /** "Wallet Balance" card — "Tap to withdraw". */
   onWithdraw?: () => void;
   onEditLifeAspects?: () => void;
   onEditSkills?: () => void;
@@ -76,6 +79,7 @@ export function DashboardScreen({
   activeTab = 'home',
   onSelectTab,
   onViewPerformance,
+  onViewEarnings,
   onWithdraw,
   onEditLifeAspects,
   onEditSkills,
@@ -227,6 +231,8 @@ export function DashboardScreen({
             caption="Today's Earnings"
             footnote={`₹${(earnings?.thisMonth ?? 0).toLocaleString('en-IN')} this month`}
             footnoteColor={colors.status.success}
+            accessibilityLabel="Today's Earnings — view earnings"
+            onPress={onViewEarnings}
           />
           <StatCard
             icon={<WalletCardIcon size={px(STAT_ICON_SIZE)} />}
@@ -238,6 +244,7 @@ export function DashboardScreen({
             caption="Wallet Balance"
             footnote="Tap to withdraw"
             footnoteColor={colors.text.ink}
+            accessibilityLabel="Wallet Balance — withdraw"
             onPress={onWithdraw}
           />
         </View>

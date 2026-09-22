@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import {
+  Alert,
   Pressable,
   ScrollView,
   StatusBar,
@@ -15,7 +16,7 @@ import { ChevronSolidIcon } from '../components/icons/ChatIcons';
 import { SearchIcon } from '../components/icons/SearchIcon';
 import { useApi } from '../hooks/useApi';
 import { useResponsive } from '../hooks/useResponsive';
-import { fetchHistory } from '../services/api';
+import { fetchHistory, submitDispute } from '../services/api';
 import { colors, radius, spacing, typography } from '../theme';
 
 const CHEVRON_WIDTH = 7.36;
@@ -50,6 +51,44 @@ type HistoryScreenProps = {
  * offering the channel, a refund and a block.
  * Figma: nodes 110:8851 (chat) and 110:9040 (call).
  */
+/**
+ * Refund and Block on a card. Neither is a self-serve action on the API —
+ * a refund moves the seeker's money and blocking needs review — so each
+ * confirms, then files a support request (the same tickets as Help &
+ * Support's dispute form) naming the consultation, instead of doing nothing.
+ */
+function askSupport(
+  entry: { id: string; userName: string; amount?: string; dateTime?: string },
+  kind: 'refund' | 'block',
+) {
+  const refund = kind === 'refund';
+  const what = refund ? `Refund ${entry.userName}` : `Block ${entry.userName}`;
+  Alert.alert(
+    refund ? 'Request a refund?' : 'Block this seeker?',
+    refund
+      ? `Support will review and refund ${entry.userName} for this consultation${entry.amount ? ` (${entry.amount})` : ''}.`
+      : `Support will review and stop ${entry.userName} from sending you further requests.`,
+    [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: refund ? 'Request refund' : 'Request block',
+        style: refund ? 'default' : 'destructive',
+        onPress: async () => {
+          try {
+            await submitDispute({
+              issueType: 'astrologer',
+              description: `${what} — consultation ${entry.id}${entry.dateTime ? ` on ${entry.dateTime}` : ''}${entry.amount ? `, ${entry.amount}` : ''}.`,
+            });
+            Alert.alert('Request sent', 'Support has your request and will follow up.');
+          } catch (error) {
+            Alert.alert('Could not send', error instanceof Error ? error.message : 'Please try again.');
+          }
+        },
+      },
+    ],
+  );
+}
+
 export function HistoryScreen({ variant, onBack, onSelect }: HistoryScreenProps) {
   const insets = useSafeAreaInsets();
   const { px, contentWidth, isTablet } = useResponsive();
@@ -119,6 +158,8 @@ export function HistoryScreen({ variant, onBack, onSelect }: HistoryScreenProps)
             entry={entry}
             primaryAction={PRIMARY_ACTIONS[variant]}
             onPrimary={() => onSelect?.(entry.id, entry.userName)}
+            onRefund={() => askSupport(entry, 'refund')}
+            onBlock={() => askSupport(entry, 'block')}
           />
         ))}
       </ScrollView>

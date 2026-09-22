@@ -771,6 +771,22 @@ export async function rejectRequest(chatId: string, reason?: string) {
   return data;
 }
 
+/**
+ * Where support can be reached — the admin panel's Settings → Support
+ * contact, from the public GET /settings. Falls back to the platform's
+ * default address when it can't be read (offline, dummy mode).
+ */
+export async function fetchSupportContact(): Promise<{ email: string; phone?: string }> {
+  const fallback = { email: 'support@shreeastro.com' };
+  if (USE_DUMMY_CONSULT) return fallback;
+  try {
+    const { data } = await client.get('/settings');
+    return { email: data?.supportEmail || fallback.email, phone: data?.supportPhone || undefined };
+  } catch {
+    return fallback;
+  }
+}
+
 export async function endConsultation(chatId: string, reason?: string) {
   if (USE_DUMMY_CONSULT) return { chatId, status: 'ended', reason };
   const { data } = await client.post(`/chats/${chatId}/end`, { reason });

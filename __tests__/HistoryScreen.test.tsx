@@ -1,6 +1,6 @@
 import { HISTORY_ENTRIES, HISTORY_TOTAL } from './helpers/fixtures';
 import React from 'react';
-import { TextInput } from 'react-native';
+import { Alert, Linking, TextInput, type AlertButton } from 'react-native';
 import ReactTestRenderer from 'react-test-renderer';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
@@ -16,7 +16,12 @@ import { DashboardScreen } from '../src/screens/DashboardScreen';
 import { HelpSupportScreen } from '../src/screens/HelpSupportScreen';
 import { HistoryScreen } from '../src/screens/HistoryScreen';
 import { LoginScreen } from '../src/screens/LoginScreen';
-import { MyReviewsScreen } from '../src/screens/MyReviewsScreen';
+import { ConsultScreen } from '../src/screens/ConsultScreen';
+import { WalletScreen } from '../src/screens/WalletScreen';
+import { WithdrawMoneyScreen } from '../src/screens/WithdrawMoneyScreen';
+import { WithdrawSuccessScreen } from '../src/screens/WithdrawSuccessScreen';
+import { StatCard } from '../src/components/StatCard';
+import { AppDataProvider } from '../src/state/AppDataProvider';
 import { OnboardingScreen } from '../src/screens/OnboardingScreen';
 import { PriceChangeScreen } from '../src/screens/PriceChangeScreen';
 import { OtpVerificationScreen } from '../src/screens/OtpVerificationScreen';
@@ -203,7 +208,7 @@ test('tapping a history card opens that past consultation as a read-only transcr
   expect(tree.root.findByType(HistoryScreen).props.variant).toBe('chat');
 });
 
-test('an entry without a screen of its own only collapses the drawer', async () => {
+test('"Missed Call" collapses the drawer onto the Consult tab, where missed requests are listed', async () => {
   const tree = await render(<App />);
   await signIn(tree);
 
@@ -217,12 +222,37 @@ test('an entry without a screen of its own only collapses the drawer', async () 
 
   expect(sidebar().props.visible).toBe(false);
   expect(tree.root.findAllByType(HistoryScreen)).toHaveLength(0);
-  expect(tree.root.findAllByType(DashboardScreen)).toHaveLength(1);
+  expect(tree.root.findAllByType(ConsultScreen)).toHaveLength(1);
+});
+
+test('"Delete Account" asks for confirmation, then opens a deletion request to support', async () => {
+  let buttons: AlertButton[] = [];
+  jest.spyOn(Alert, 'alert').mockImplementation((_title, _message, given) => {
+    buttons = given ?? [];
+  });
+  const openURL = jest.spyOn(Linking, 'openURL').mockResolvedValue(true as never);
+  const tree = await render(<App />);
+  await signIn(tree);
+
+  await act(() => {
+    tree.root.findByType(DashboardScreen).props.onSelectTab('menu');
+  });
+  await act(() => {
+    tree.root.findByType(MenuSidebar).props.onSelect(MENU_ITEMS.find(item => item.id === 'delete-account'));
+  });
+  expect(tree.root.findByType(MenuSidebar).props.visible).toBe(false);
+  expect(buttons.map(button => button.text)).toEqual(['Cancel', 'Request deletion']);
+  expect(openURL).not.toHaveBeenCalled();
+
+  await act(async () => {
+    await buttons[1].onPress?.();
+  });
+  expect(openURL).toHaveBeenCalledWith(expect.stringMatching(/^mailto:.+\?subject=Delete%20my%20astrologer%20account$/));
+  jest.restoreAllMocks();
 });
 
 test.each([
   ['price-change', PriceChangeScreen],
-  ['my-review', MyReviewsScreen],
   ['help', HelpSupportScreen],
 ])('the %s entry opens its own screen', async (id, Screen) => {
   const tree = await render(<App />);
@@ -239,4 +269,134 @@ test.each([
   expect(sidebar().props.visible).toBe(false);
   expect(tree.root.findAllByType(Screen)).toHaveLength(1);
   expect(tree.root.findAllByType(DashboardScreen)).toHaveLength(0);
+});
+
+describe('dashboard stat cards', () => {
+  const card = (tree: ReactTestRenderer.ReactTestRenderer, caption: string) =>
+    tree.root.findAllByType(StatCard).find(entry => entry.props.caption === caption)!;
+
+  test('"Today\'s Earnings" opens the Wallet tab (earnings and ledger)', async () => {
+    const tree = await render(<App />);
+    await signIn(tree);
+    expect(card(tree, "Today's Earnings").props.onPress).toEqual(expect.any(Function));
+    await act(() => {
+      card(tree, "Today's Earnings").props.onPress();
+    });
+    expect(tree.root.findAllByType(WalletScreen)).toHaveLength(1);
+    expect(tree.root.findAllByType(DashboardScreen)).toHaveLength(0);
+  });
+
+  test('"Wallet Balance" opens withdraw; its success screen goes back to the Wallet tab', async () => {
+    const tree = await render(<App />);
+    await signIn(tree);
+    await act(() => {
+      card(tree, 'Wallet Balance').props.onPress();
+    });
+    const withdraw = tree.root.findByType(WithdrawMoneyScreen);
+
+    // Backing out returns to the dashboard it came from.
+    await act(() => {
+      withdraw.props.onBack();
+    });
+    expect(tree.root.findAllByType(DashboardScreen)).toHaveLength(1);
+
+    await act(() => {
+      card(tree, 'Wallet Balance').props.onPress();
+    });
+    await act(() => {
+      tree.root.findByType(WithdrawMoneyScreen).props.onConfirm('500');
+    });
+    await act(() => {
+      tree.root.findByType(WithdrawSuccessScreen).props.onBackToWallet();
+    });
+    expect(tree.root.findAllByType(WalletScreen)).toHaveLength(1);
+  });
+
+  test('performance "View All" opens the consultation (chat) history', async () => {
+    const tree = await render(<App />);
+    await signIn(tree);
+    await act(() => {
+      tree.root.findByType(DashboardScreen).props.onViewPerformance();
+    });
+    expect(tree.root.findByType(HistoryScreen).props.variant).toBe('chat');
+  });
+});
+
+describe('help & support quick help', () => {
+  test('"Email Us" opens a mail to support; "Live Chat" explains and offers email', async () => {
+    const openURL = jest.spyOn(Linking, 'openURL').mockResolvedValue(true as never);
+    let buttons: AlertButton[] = [];
+    jest.spyOn(Alert, 'alert').mockImplementation((_title, _message, given) => {
+      buttons = given ?? [];
+    });
+    const tree = await render(
+      <AppDataProvider>
+        <HelpSupportScreen />
+      </AppDataProvider>,
+    );
+    const press = async (label: string) => {
+      const target = tree.root.findAll(n => n.props.accessibilityLabel === label && typeof n.props.onPress === 'function')[0];
+      await act(async () => {
+        await target.props.onPress();
+      });
+    };
+
+    await press('Email Us');
+    expect(openURL).toHaveBeenCalledWith(expect.stringMatching(/^mailto:support@shreeastro\.com\?subject=/));
+
+    openURL.mockClear();
+    await press('Live Chat');
+    expect(buttons.map(button => button.text)).toEqual(['OK', 'Email us']);
+    jest.restoreAllMocks();
+  });
+});
+
+describe('history card actions', () => {
+  test('Refund and Block confirm, then file a support request naming the consultation', async () => {
+    const api = require('../src/services/api');
+    const dispute = jest.spyOn(api, 'submitDispute').mockResolvedValue(undefined as never);
+    const alerts: Array<{ title: string; buttons: AlertButton[] }> = [];
+    jest.spyOn(Alert, 'alert').mockImplementation((title, _message, given) => {
+      alerts.push({ title: String(title), buttons: given ?? [] });
+    });
+    const tree = await render(<HistoryScreen variant="chat" />);
+    const card = tree.root.findAllByType(HistoryCard)[0];
+
+    await act(() => {
+      card.props.onRefund();
+    });
+    expect(alerts.at(-1)?.title).toBe('Request a refund?');
+    await act(async () => {
+      await alerts.at(-1)!.buttons[1].onPress?.();
+    });
+    expect(dispute).toHaveBeenCalledWith(expect.objectContaining({
+      issueType: 'astrologer',
+      description: expect.stringContaining(`Refund ${HISTORY_ENTRIES[0].userName} — consultation ${HISTORY_ENTRIES[0].id}`),
+    }));
+    expect(alerts.at(-1)?.title).toBe('Request sent');
+
+    await act(() => {
+      card.props.onBlock();
+    });
+    expect(alerts.at(-1)?.title).toBe('Block this seeker?');
+    await act(async () => {
+      await alerts.at(-1)!.buttons[1].onPress?.();
+    });
+    expect(dispute).toHaveBeenLastCalledWith(expect.objectContaining({ description: expect.stringContaining(`Block ${HISTORY_ENTRIES[0].userName}`) }));
+    jest.restoreAllMocks();
+  });
+
+  test('the sidebar\'s edit (pencil) opens Edit Profile', async () => {
+    const tree = await render(<App />);
+    await signIn(tree);
+    await act(() => {
+      tree.root.findByType(DashboardScreen).props.onSelectTab('menu');
+    });
+    await act(() => {
+      tree.root.findByType(MenuSidebar).props.onEditProfile();
+    });
+    expect(tree.root.findByType(MenuSidebar).props.visible).toBe(false);
+    const { EditProfileScreen } = require('../src/screens/EditProfileScreen');
+    expect(tree.root.findAllByType(EditProfileScreen)).toHaveLength(1);
+  });
 });

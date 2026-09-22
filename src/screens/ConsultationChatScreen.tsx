@@ -133,8 +133,15 @@ export function ConsultationChatScreen({
     }
     if (state.data?.billingMode === 'package' && state.data.package) {
       setPkg(state.data.package);
+      /** Opened while the seeker is choosing how to continue after a package — frozen, same as their screen. */
+      if (state.data.package.phase === 'awaiting_choice' && state.data.status === 'active' && !readOnly) {
+        pausedSinceOverride.current = state.data.package.awaitingChoiceSince
+          ? new Date(state.data.package.awaitingChoiceSince).getTime()
+          : null;
+        setSessionPaused(true);
+      }
     }
-  }, [state.data]);
+  }, [state.data, readOnly]);
 
   useEffect(() => {
     if (sessionPaused) {
@@ -231,6 +238,13 @@ export function ConsultationChatScreen({
         }
         if (payload.package) {
           setPkg(payload.package);
+          if (payload.package.phase === 'awaiting_choice' && payload.status === 'active') {
+            pausedSinceOverride.current = payload.package.awaitingChoiceSince
+              ? new Date(payload.package.awaitingChoiceSince).getTime()
+              : Date.now();
+            setSessionPaused(true);
+            return;
+          }
         }
         if (payload.paused) {
           pausedSinceOverride.current = payload.pausedSince ? new Date(payload.pausedSince).getTime() : Date.now();
@@ -252,9 +266,22 @@ export function ConsultationChatScreen({
         clockOffset.current = clockOffsetMs(payload.serverTime);
         setPkg(current => (current ? { ...current, endsAt: payload.endsAt } : current));
       },
-      /** The package ran out: from here the header counts the session up, same as the seeker's. */
+      /** The package ran out: paused (clock frozen, composer blocked) while the seeker chooses how to continue. */
+      onPackageEnded: payload => {
+        clockOffset.current = clockOffsetMs(payload.serverTime);
+        setPkg(current => ({ ...(current ?? {}), phase: 'awaiting_choice', awaitingChoiceSince: payload.pausedSince }));
+        setSessionPaused(true);
+      },
+      /** The seeker took another package: a fresh countdown, same as theirs. */
+      onPackageExtended: payload => {
+        clockOffset.current = clockOffsetMs(payload.serverTime);
+        setPkg(current => ({ ...(current ?? {}), phase: 'package', endsAt: payload.endsAt, awaitingChoiceSince: undefined }));
+        setSessionPaused(false);
+      },
+      /** The seeker chose per-minute: from here the header counts the session up, same as the seeker's. */
       onPerMinuteStarted: payload => {
-        setPkg(current => ({ ...(current ?? {}), phase: 'per_minute', perMinuteStartedAt: payload.perMinuteStartedAt }));
+        setPkg(current => ({ ...(current ?? {}), phase: 'per_minute', perMinuteStartedAt: payload.perMinuteStartedAt, awaitingChoiceSince: undefined }));
+        setSessionPaused(false);
       },
       onEnded: () => onLeave?.(),
     });
@@ -327,9 +354,11 @@ export function ConsultationChatScreen({
       <ChatHeader
         name={peerName}
         elapsed={
-          !readOnly && pkg?.phase === 'package'
-            ? `${formatClock(packageSecondsLeft)} left`
-            : elapsedLabel(elapsedSeconds)
+          !readOnly && pkg?.phase === 'awaiting_choice'
+            ? 'Paused'
+            : !readOnly && pkg?.phase === 'package'
+              ? `${formatClock(packageSecondsLeft)} left`
+              : elapsedLabel(elapsedSeconds)
         }
         onOpenKundli={() => setGenerating(true)}
         onLeave={() => (readOnly ? onLeave?.() : setLeaving(true))}
@@ -352,7 +381,9 @@ export function ConsultationChatScreen({
         {!readOnly && sessionPaused && (
           <View style={styles.pausedBanner}>
             <Text style={styles.pausedBannerText}>
-              Seeker's balance is low — chat paused until they recharge.
+              {pkg?.phase === 'awaiting_choice'
+                ? 'Package time is over — chat paused while the seeker chooses how to continue.'
+                : "Seeker's balance is low — chat paused until they recharge."}
             </Text>
           </View>
         )}
