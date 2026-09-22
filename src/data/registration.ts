@@ -29,6 +29,17 @@ export const SPECIALIZATIONS: ReadonlyArray<string> = [
   'Nadi Astrology',
 ];
 
+/** The backend's `expertise` ids (models/constants.js) each label above maps to. */
+export const SPECIALIZATION_IDS: Record<string, string> = {
+  'Vedic Astrology': 'vedic',
+  Numerology: 'numerology',
+  Tarot: 'tarot',
+  'Vastu Shastra': 'vastu',
+  Palmistry: 'palmistry',
+  'KP System': 'krishnamurti-paddhati',
+  'Nadi Astrology': 'nadi',
+};
+
 /** Figma node 105:6221. */
 export const LANGUAGES: ReadonlyArray<string> = [
   'Hindi',
@@ -40,6 +51,17 @@ export const LANGUAGES: ReadonlyArray<string> = [
   'Gujarati',
 ];
 
+/** The backend's `languages` ids each label above maps to. */
+export const LANGUAGE_IDS: Record<string, string> = {
+  Hindi: 'hindi',
+  English: 'english',
+  Tamil: 'tamil',
+  Telugu: 'telugu',
+  Bengali: 'bengali',
+  Marathi: 'marathi',
+  Gujarati: 'gujarati',
+};
+
 /** Figma node 105:6248. */
 export const EXPERIENCE_OPTIONS: ReadonlyArray<Option> = [
   { value: '1-3', label: '1–3' },
@@ -47,6 +69,14 @@ export const EXPERIENCE_OPTIONS: ReadonlyArray<Option> = [
   { value: '5-10', label: '5–10' },
   { value: '10+', label: '10+' },
 ];
+
+/** The whole-years figure `registerAstrologer`'s `experienceYears` wants — the midpoint of each band. */
+export const EXPERIENCE_YEARS: Record<string, number> = {
+  '1-3': 2,
+  '3-5': 4,
+  '5-10': 7,
+  '10+': 12,
+};
 
 /** Figma node 105:6266 — the last option carries its own width. */
 export const RATE_OPTIONS: ReadonlyArray<Option> = [
@@ -63,6 +93,13 @@ export type RequiredDocument = {
   /** Formats and size limit, shown until the document lands. */
   hint: string;
   Icon: ComponentType<{ size?: number; color?: string }>;
+  /**
+   * The backend's `AstrologerProfile.documents[].type` id (models/constants.js
+   * `DOCUMENT_TYPES`) this row files under. Undefined for the profile photo —
+   * that one isn't a "document" on the backend at all; it goes through
+   * `photoUrl` on the account itself instead of the documents endpoint.
+   */
+  backendType?: string;
 };
 
 /** Figma nodes 105:6330 – 105:6408. */
@@ -78,24 +115,28 @@ export const REQUIRED_DOCUMENTS: ReadonlyArray<RequiredDocument> = [
     title: 'Aadhar Card — Front',
     hint: 'JPG/PNG/PDF, max 5MB',
     Icon: FileIcon,
+    backendType: 'aadhaar_front',
   },
   {
     id: 'aadhar-back',
     title: 'Aadhar Card — Back',
     hint: 'JPG/PNG/PDF, max 5MB',
     Icon: FileIcon,
+    backendType: 'aadhaar_back',
   },
   {
     id: 'pan',
     title: 'PAN Card',
     hint: 'JPG/PNG/PDF, max 5MB',
     Icon: LockIcon,
+    backendType: 'pan_card',
   },
   {
     id: 'certificate',
     title: 'Astrology Certificate',
     hint: 'JPG/PNG/PDF, max 10MB',
     Icon: CertificateIcon,
+    backendType: 'certificate',
   },
 ];
 

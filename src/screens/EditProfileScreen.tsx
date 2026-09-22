@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Image,
@@ -27,15 +27,16 @@ import { OptionPickerSheet } from '../components/OptionPickerSheet';
 import { ProfileGalleryCard } from '../components/ProfileGalleryCard';
 import { ProfileHeader } from '../components/ProfileHeader';
 import {
-  EDIT_GALLERIES,
   GENDER_OPTIONS,
   LANGUAGE_OPTIONS,
   SKILL_OPTIONS,
   type AstrologerProfile,
 } from '../data/profile';
-import { pickFile } from '../services/filePicker';
+import { useResponsive } from '../hooks/useResponsive';
+import { pickFile, type PickedFile } from '../services/filePicker';
 import { useAppData } from '../state/AppDataProvider';
 import { colors, radius, spacing, typography } from '../theme';
+import { photoOf } from '../utils/images';
 
 const AVATAR_WIDTH = 69.548;
 const AVATAR_HEIGHT = 66;
@@ -71,8 +72,16 @@ type EditProfileScreenProps = {
  * Figma: node 110:7463.
  */
 export function EditProfileScreen({ onBack, onClose }: EditProfileScreenProps) {
-  const { profile, saveProfile, changeProfilePhoto, error, clearError } =
-    useAppData();
+  const {
+    profile,
+    saveProfile,
+    changeProfilePhoto,
+    gallery,
+    addGalleryImage,
+    removeGalleryImage,
+    error,
+    clearError,
+  } = useAppData();
   /**
    * Unsaved edits, if any.
    *
@@ -86,6 +95,14 @@ export function EditProfileScreen({ onBack, onClose }: EditProfileScreenProps) {
   const [picker, setPicker] = useState<Picker>(null);
   const [saving, setSaving] = useState(false);
   const [pickingPhoto, setPickingPhoto] = useState(false);
+  /** Shown instantly on pick, ahead of the upload finishing. */
+  const [pickedPhoto, setPickedPhoto] = useState<PickedFile | null>(null);
+  const [addingGalleryPhoto, setAddingGalleryPhoto] = useState(false);
+  const { px, contentWidth, isTablet } = useResponsive();
+  const styles = useMemo(
+    () => createStyles(px, contentWidth, isTablet),
+    [px, contentWidth, isTablet],
+  );
 
   const set = <K extends keyof AstrologerProfile>(
     key: K,
@@ -96,10 +113,20 @@ export function EditProfileScreen({ onBack, onClose }: EditProfileScreenProps) {
     setPickingPhoto(true);
     const file = await pickFile('photo');
     if (file) {
+      setPickedPhoto(file);
       await changeProfilePhoto(file);
-      set('photoFileName', file.name);
     }
     setPickingPhoto(false);
+  };
+
+  /** Adds a new photo to the portfolio gallery — distinct from the profile photo above. */
+  const addPhotoToGallery = async () => {
+    setAddingGalleryPhoto(true);
+    const file = await pickFile('photo');
+    if (file) {
+      await addGalleryImage(file);
+    }
+    setAddingGalleryPhoto(false);
   };
 
   const update = async () => {
@@ -143,7 +170,10 @@ export function EditProfileScreen({ onBack, onClose }: EditProfileScreenProps) {
               >
                 <Image
                   accessibilityLabel={draft.fullName}
-                  source={require('../assets/images/astrologer-avatar.jpg')}
+                  source={photoOf(
+                    pickedPhoto?.uri ?? draft.photoUrl,
+                    require('../assets/images/astrologer-avatar.jpg'),
+                  )}
                   style={styles.avatar}
                 />
                 <View style={styles.cameraBadge}>
@@ -192,15 +222,16 @@ export function EditProfileScreen({ onBack, onClose }: EditProfileScreenProps) {
 
             <Text style={styles.formTitle}>Edit Profile</Text>
 
-            {draft.photoFileName && (
+            {pickedPhoto && (
               <Text style={styles.notice}>
-                New photo selected: {draft.photoFileName}
+                New photo selected: {pickedPhoto.name}
               </Text>
             )}
 
             {error && <Text style={styles.error}>{error}</Text>}
 
             <Field
+              styles={styles}
               label="Full name"
               value={draft.fullName}
               onChangeText={next => set('fullName', next)}
@@ -209,6 +240,7 @@ export function EditProfileScreen({ onBack, onClose }: EditProfileScreenProps) {
             />
 
             <Field
+              styles={styles}
               label="E-mail"
               value={draft.email}
               onChangeText={next => set('email', next)}
@@ -217,6 +249,7 @@ export function EditProfileScreen({ onBack, onClose }: EditProfileScreenProps) {
 
             <View style={styles.pair}>
               <SelectField
+              styles={styles}
                 label="Gender"
                 value={draft.gender}
                 chevron="right"
@@ -240,24 +273,28 @@ export function EditProfileScreen({ onBack, onClose }: EditProfileScreenProps) {
             </View>
 
             <PhoneField
+              styles={styles}
               label="Primary Mobile"
               value={draft.primaryMobile}
               onChangeText={next => set('primaryMobile', next)}
             />
 
             <PhoneField
+              styles={styles}
               label="Secondary Mobile*"
               value={draft.secondaryMobile}
               onChangeText={next => set('secondaryMobile', next)}
             />
 
             <Field
+              styles={styles}
               label="Exeperience"
               value={draft.experience}
               onChangeText={next => set('experience', next)}
             />
 
             <SelectField
+              styles={styles}
               label="Skill*"
               value={draft.skill}
               chevron="down"
@@ -265,6 +302,7 @@ export function EditProfileScreen({ onBack, onClose }: EditProfileScreenProps) {
             />
 
             <SelectField
+              styles={styles}
               label="Language*"
               value={draft.language}
               chevron="down"
@@ -272,6 +310,7 @@ export function EditProfileScreen({ onBack, onClose }: EditProfileScreenProps) {
             />
 
             <Field
+              styles={styles}
               label="About"
               value={draft.about}
               onChangeText={next => set('about', next)}
@@ -279,16 +318,14 @@ export function EditProfileScreen({ onBack, onClose }: EditProfileScreenProps) {
             />
           </View>
 
-          {/* The galleries are managed through the photo picker for now. */}
-          {EDIT_GALLERIES.map(gallery => (
-            <ProfileGalleryCard
-              key={gallery.title}
-              title={gallery.title}
-              count={gallery.count}
-              variant="edit"
-              onEdit={changePhoto}
-            />
-          ))}
+          <ProfileGalleryCard
+            title="Profile Gallery"
+            photos={gallery}
+            variant="edit"
+            busy={addingGalleryPhoto}
+            onEdit={addPhotoToGallery}
+            onRemove={id => removeGalleryImage(id)}
+          />
 
           <View style={styles.requestPanel}>
             <View style={styles.requestHeader}>
@@ -334,6 +371,7 @@ export function EditProfileScreen({ onBack, onClose }: EditProfileScreenProps) {
 }
 
 type FieldProps = {
+  styles: ReturnType<typeof createStyles>;
   label: string;
   value: string;
   onChangeText: (value: string) => void;
@@ -347,6 +385,7 @@ type FieldProps = {
 
 /** A labelled text field on the edit form. */
 function Field({
+  styles,
   label,
   value,
   onChangeText,
@@ -376,6 +415,7 @@ function Field({
 }
 
 type SelectFieldProps = {
+  styles: ReturnType<typeof createStyles>;
   label: string;
   value: string;
   /** Figma points the chevron right on a picker and down on a list. */
@@ -386,6 +426,7 @@ type SelectFieldProps = {
 
 /** A field whose value is chosen from a sheet rather than typed. */
 function SelectField({
+  styles,
   label,
   value,
   chevron,
@@ -419,13 +460,14 @@ function SelectField({
 }
 
 type PhoneFieldProps = {
+  styles: ReturnType<typeof createStyles>;
   label: string;
   value: string;
   onChangeText: (value: string) => void;
 };
 
 /** A phone field: the dial-code chip sits inside the outlined field. */
-function PhoneField({ label, value, onChangeText }: PhoneFieldProps) {
+function PhoneField({ styles, label, value, onChangeText }: PhoneFieldProps) {
   return (
     <View style={styles.field}>
       <Text style={styles.fieldLabel}>{label}</Text>
@@ -451,215 +493,220 @@ function PhoneField({ label, value, onChangeText }: PhoneFieldProps) {
   );
 }
 
-const styles = StyleSheet.create({
-  screen: {
-    flex: 1,
-    backgroundColor: colors.canvasSoft,
-  },
-  fill: {
-    flex: 1,
-  },
-  content: {
-    paddingHorizontal: 12,
-    paddingTop: spacing.lg,
-    paddingBottom: spacing.lg,
-    gap: spacing.md,
-  },
-  pressed: {
-    opacity: 0.6,
-  },
-  busy: {
-    opacity: 0.8,
-  },
-  formCard: {
-    paddingHorizontal: CARD_GUTTER,
-    paddingTop: spacing.sm,
-    paddingBottom: spacing.lg,
-    gap: spacing.section,
-    borderRadius: radius.input,
-    borderWidth: 1,
-    // Figma drops the card's `karmaguru blue-400` outline to 20% (110:7556).
-    borderColor: colors.border.historyCard,
-    backgroundColor: colors.surface,
-  },
-  topRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    justifyContent: 'space-between',
-  },
-  avatar: {
-    width: AVATAR_WIDTH,
-    height: AVATAR_HEIGHT,
-    borderRadius: radius.avatar,
-  },
-  // The badge straddles the avatar's bottom-right edge (node 110:7685).
-  cameraBadge: {
-    position: 'absolute',
-    left: 48.47,
-    top: 43,
-  },
-  actions: {
-    flexDirection: 'row',
-    gap: 9.4,
-  },
-  action: {
-    width: ACTION_WIDTH,
-    height: ACTION_HEIGHT,
-    alignItems: 'center',
-    justifyContent: 'center',
-    overflow: 'hidden',
-  },
-  cancel: {
-    borderRadius: radius.thumb,
-    borderWidth: 1,
-    borderColor: colors.text.ink,
-  },
-  cancelLabel: {
-    ...typography.profileButton,
-    color: colors.text.ink,
-  },
-  update: {
-    borderRadius: radius.button,
-  },
-  updateLabel: {
-    ...typography.profileButton,
-    color: colors.text.inverse,
-  },
-  formTitle: {
-    ...typography.profileName,
-    color: colors.text.slateMuted,
-  },
-  notice: {
-    ...typography.editFieldLabel,
-    color: colors.status.success,
-  },
-  error: {
-    ...typography.editFieldLabel,
-    color: colors.status.danger,
-  },
-  field: {
-    gap: 6,
-  },
-  fieldLabel: {
-    ...typography.editFieldLabel,
-    color: colors.text.field,
-    paddingLeft: 1.05,
-  },
-  input: {
-    ...typography.editFieldValue,
-    height: FIELD_HEIGHT,
-    paddingHorizontal: CARD_GUTTER,
-    paddingVertical: 0,
-    borderRadius: radius.input,
-    borderWidth: FIELD_BORDER,
-    borderColor: colors.border.profileField,
-    color: colors.text.field,
-  },
-  inputLarge: {
-    ...typography.editFieldValueLarge,
-  },
-  inputFocused: {
-    borderColor: colors.border.profileFieldActive,
-  },
-  inputMultiline: {
-    ...typography.editFieldParagraph,
-    height: 61,
-    paddingTop: 9,
-    borderRadius: radius.textArea,
-    textAlignVertical: 'top',
-  },
-  pair: {
-    flexDirection: 'row',
-    gap: spacing.md,
-  },
-  pairItem: {
-    flex: 1,
-  },
-  select: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    height: FIELD_HEIGHT,
-    paddingLeft: CARD_GUTTER,
-    paddingRight: CARD_GUTTER,
-    borderRadius: radius.input,
-    borderWidth: FIELD_BORDER,
-    borderColor: colors.border.profileField,
-  },
-  selectValue: {
-    ...typography.editFieldValue,
-    flex: 1,
-    color: colors.text.field,
-  },
-  selectInput: {
-    ...typography.editFieldValue,
-    flex: 1,
-    height: '100%',
-    paddingVertical: 0,
-    color: colors.text.field,
-  },
-  // The chevron is exported pointing down; a picker turns it to point right.
-  chevronRight: {
-    transform: [{ rotate: '-90deg' }],
-  },
-  phoneField: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    height: FIELD_HEIGHT,
-    paddingLeft: 5.27,
-    borderRadius: radius.input,
-    borderWidth: FIELD_BORDER,
-    borderColor: colors.border.profileField,
-  },
-  dialChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 7,
-    width: DIAL_CHIP_WIDTH,
-    height: DIAL_CHIP_HEIGHT,
-    paddingHorizontal: 7.38,
-    borderRadius: radius.dialChip,
-    backgroundColor: colors.surfaceDialChip,
-  },
-  dialCode: {
-    ...typography.editDialCode,
-    color: colors.text.slateMuted,
-  },
-  phoneInput: {
-    ...typography.editFieldValue,
-    flex: 1,
-    height: '100%',
-    paddingHorizontal: spacing.section,
-    paddingVertical: 0,
-    color: colors.text.field,
-  },
-  requestPanel: {
-    height: 195.712,
-    borderRadius: radius.mediaCard,
-    borderWidth: 1,
-    borderColor: colors.border.mediaCard,
-    backgroundColor: colors.surface,
-    overflow: 'hidden',
-  },
-  requestHeader: {
-    height: 38.507,
-    justifyContent: 'center',
-    paddingHorizontal: 10,
-    backgroundColor: colors.brandYellow,
-  },
-  requestTitle: {
-    ...typography.profileSectionStrong,
-    color: colors.text.ink,
-  },
-  requestEmpty: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: spacing.sm,
-    // Figma sets the whole empty state to 50% (node 110:7722).
-    opacity: 0.5,
-  },
-  requestEmptyLabel: {
-    ...typography.profileRowLabel,
-    color: colors.text.slateMuted,
-  },
-});
+function createStyles(px: (value: number) => number, contentWidth: number, isTablet: boolean) {
+  return StyleSheet.create({
+    screen: {
+      flex: 1,
+      backgroundColor: colors.canvasSoft,
+    },
+    fill: {
+      flex: 1,
+    },
+    content: {
+      alignSelf: 'center',
+      width: '100%',
+      maxWidth: isTablet ? contentWidth : undefined,
+      paddingHorizontal: px(12),
+      paddingTop: spacing.lg,
+      paddingBottom: spacing.lg,
+      gap: spacing.md,
+    },
+    pressed: {
+      opacity: 0.6,
+    },
+    busy: {
+      opacity: 0.8,
+    },
+    formCard: {
+      paddingHorizontal: px(CARD_GUTTER),
+      paddingTop: spacing.sm,
+      paddingBottom: spacing.lg,
+      gap: spacing.section,
+      borderRadius: radius.input,
+      borderWidth: 1,
+      // Figma drops the card's `karmaguru blue-400` outline to 20% (110:7556).
+      borderColor: colors.border.historyCard,
+      backgroundColor: colors.surface,
+    },
+    topRow: {
+      flexDirection: 'row',
+      alignItems: 'flex-start',
+      justifyContent: 'space-between',
+    },
+    avatar: {
+      width: px(AVATAR_WIDTH),
+      height: px(AVATAR_HEIGHT),
+      borderRadius: radius.avatar,
+    },
+    // The badge straddles the avatar's bottom-right edge (node 110:7685).
+    cameraBadge: {
+      position: 'absolute',
+      left: px(48.47),
+      top: px(43),
+    },
+    actions: {
+      flexDirection: 'row',
+      gap: px(9.4),
+    },
+    action: {
+      width: px(ACTION_WIDTH),
+      height: px(ACTION_HEIGHT),
+      alignItems: 'center',
+      justifyContent: 'center',
+      overflow: 'hidden',
+    },
+    cancel: {
+      borderRadius: radius.thumb,
+      borderWidth: 1,
+      borderColor: colors.text.ink,
+    },
+    cancelLabel: {
+      ...typography.profileButton,
+      color: colors.text.ink,
+    },
+    update: {
+      borderRadius: radius.button,
+    },
+    updateLabel: {
+      ...typography.profileButton,
+      color: colors.text.inverse,
+    },
+    formTitle: {
+      ...typography.profileName,
+      color: colors.text.slateMuted,
+    },
+    notice: {
+      ...typography.editFieldLabel,
+      color: colors.status.success,
+    },
+    error: {
+      ...typography.editFieldLabel,
+      color: colors.status.danger,
+    },
+    field: {
+      gap: 6,
+    },
+    fieldLabel: {
+      ...typography.editFieldLabel,
+      color: colors.text.field,
+      paddingLeft: px(1.05),
+    },
+    input: {
+      ...typography.editFieldValue,
+      height: px(FIELD_HEIGHT),
+      paddingHorizontal: px(CARD_GUTTER),
+      paddingVertical: 0,
+      borderRadius: radius.input,
+      borderWidth: FIELD_BORDER,
+      borderColor: colors.border.profileField,
+      color: colors.text.field,
+    },
+    inputLarge: {
+      ...typography.editFieldValueLarge,
+    },
+    inputFocused: {
+      borderColor: colors.border.profileFieldActive,
+    },
+    inputMultiline: {
+      ...typography.editFieldParagraph,
+      height: px(61),
+      paddingTop: px(9),
+      borderRadius: radius.textArea,
+      textAlignVertical: 'top',
+    },
+    pair: {
+      flexDirection: 'row',
+      gap: spacing.md,
+    },
+    pairItem: {
+      flex: 1,
+    },
+    select: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      height: px(FIELD_HEIGHT),
+      paddingLeft: px(CARD_GUTTER),
+      paddingRight: px(CARD_GUTTER),
+      borderRadius: radius.input,
+      borderWidth: FIELD_BORDER,
+      borderColor: colors.border.profileField,
+    },
+    selectValue: {
+      ...typography.editFieldValue,
+      flex: 1,
+      color: colors.text.field,
+    },
+    selectInput: {
+      ...typography.editFieldValue,
+      flex: 1,
+      height: '100%',
+      paddingVertical: 0,
+      color: colors.text.field,
+    },
+    // The chevron is exported pointing down; a picker turns it to point right.
+    chevronRight: {
+      transform: [{ rotate: '-90deg' }],
+    },
+    phoneField: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      height: px(FIELD_HEIGHT),
+      paddingLeft: px(5.27),
+      borderRadius: radius.input,
+      borderWidth: FIELD_BORDER,
+      borderColor: colors.border.profileField,
+    },
+    dialChip: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 7,
+      width: px(DIAL_CHIP_WIDTH),
+      height: px(DIAL_CHIP_HEIGHT),
+      paddingHorizontal: px(7.38),
+      borderRadius: radius.dialChip,
+      backgroundColor: colors.surfaceDialChip,
+    },
+    dialCode: {
+      ...typography.editDialCode,
+      color: colors.text.slateMuted,
+    },
+    phoneInput: {
+      ...typography.editFieldValue,
+      flex: 1,
+      height: '100%',
+      paddingHorizontal: spacing.section,
+      paddingVertical: 0,
+      color: colors.text.field,
+    },
+    requestPanel: {
+      height: px(195.712),
+      borderRadius: radius.mediaCard,
+      borderWidth: 1,
+      borderColor: colors.border.mediaCard,
+      backgroundColor: colors.surface,
+      overflow: 'hidden',
+    },
+    requestHeader: {
+      height: px(38.507),
+      justifyContent: 'center',
+      paddingHorizontal: 10,
+      backgroundColor: colors.brandYellow,
+    },
+    requestTitle: {
+      ...typography.profileSectionStrong,
+      color: colors.text.ink,
+    },
+    requestEmpty: {
+      flex: 1,
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: spacing.sm,
+      // Figma sets the whole empty state to 50% (node 110:7722).
+      opacity: 0.5,
+    },
+    requestEmptyLabel: {
+      ...typography.profileRowLabel,
+      color: colors.text.slateMuted,
+    },
+  });
+}

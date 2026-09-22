@@ -1,8 +1,9 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { KundliIcon } from './icons/KundliIcon';
+import { useResponsive } from '../hooks/useResponsive';
 import { colors, radius, typography } from '../theme';
 
 const AVATAR_SIZE = 36;
@@ -36,12 +37,14 @@ export function ChatHeader({
   onLeave,
 }: ChatHeaderProps) {
   const insets = useSafeAreaInsets();
+  const { px } = useResponsive();
+  const styles = useMemo(() => createStyles(px), [px]);
 
   return (
     <View
       style={[
         styles.header,
-        { paddingTop: insets.top + HEADER_TOP, paddingBottom: HEADER_BOTTOM },
+        { paddingTop: insets.top + px(HEADER_TOP), paddingBottom: px(HEADER_BOTTOM) },
       ]}
     >
       <View style={styles.avatarWrap}>
@@ -71,7 +74,7 @@ export function ChatHeader({
       >
         {/* Figma masks a solid #111 rectangle with the chart artwork, so the
             glyph is painted in that one ink (node 110:566). */}
-        <KundliIcon width={GLYPH_WIDTH} height={GLYPH_HEIGHT} />
+        <KundliIcon width={px(GLYPH_WIDTH)} height={px(GLYPH_HEIGHT)} />
       </Pressable>
 
       <Pressable
@@ -86,65 +89,67 @@ export function ChatHeader({
   );
 }
 
-const styles = StyleSheet.create({
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    // Buttons sit 10pt apart and 13pt off the right edge (nodes 110:502, 110:522).
-    gap: 10,
-    paddingLeft: 16.71,
-    paddingRight: 13,
-    backgroundColor: colors.brandYellow,
-  },
-  avatarWrap: {
-    width: AVATAR_SIZE,
-    height: AVATAR_SIZE,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  avatarRing: {
-    position: 'absolute',
-    width: AVATAR_SIZE,
-    height: AVATAR_SIZE,
-    borderRadius: AVATAR_SIZE / 2,
-  },
-  avatarPhoto: {
-    width: PHOTO_SIZE,
-    height: PHOTO_SIZE,
-    borderRadius: PHOTO_SIZE / 2,
-  },
-  identity: {
-    width: IDENTITY_WIDTH,
-    // 59.95 − (16.71 + 36) = 7.24 from the avatar, less the row's 10pt gap.
-    marginLeft: -2.76,
-  },
-  name: {
-    ...typography.chatName,
-    color: colors.text.ink,
-    textAlign: 'center',
-  },
-  elapsed: {
-    ...typography.chatTimer,
-    color: colors.text.ink,
-    paddingLeft: 3.76,
-  },
-  spacer: {
-    flex: 1,
-  },
-  button: {
-    width: BUTTON_SIZE,
-    height: BUTTON_SIZE,
-    borderRadius: radius.chipSmall,
-    borderWidth: 1,
-    borderColor: colors.text.ink,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  pressed: {
-    opacity: 0.6,
-  },
-  close: {
-    ...typography.closeMark,
-    color: colors.text.ink,
-  },
-});
+function createStyles(px: (value: number) => number) {
+  return StyleSheet.create({
+    header: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      // Buttons sit 10pt apart and 13pt off the right edge (nodes 110:502, 110:522).
+      gap: 10,
+      paddingLeft: px(16.71),
+      paddingRight: px(13),
+      backgroundColor: colors.brandYellow,
+    },
+    avatarWrap: {
+      width: px(AVATAR_SIZE),
+      height: px(AVATAR_SIZE),
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    avatarRing: {
+      position: 'absolute',
+      width: px(AVATAR_SIZE),
+      height: px(AVATAR_SIZE),
+      borderRadius: px(AVATAR_SIZE) / 2,
+    },
+    avatarPhoto: {
+      width: px(PHOTO_SIZE),
+      height: px(PHOTO_SIZE),
+      borderRadius: px(PHOTO_SIZE) / 2,
+    },
+    identity: {
+      width: px(IDENTITY_WIDTH),
+      // 59.95 − (16.71 + 36) = 7.24 from the avatar, less the row's 10pt gap.
+      marginLeft: px(-2.76),
+    },
+    name: {
+      ...typography.chatName,
+      color: colors.text.ink,
+      textAlign: 'center',
+    },
+    elapsed: {
+      ...typography.chatTimer,
+      color: colors.text.ink,
+      paddingLeft: px(3.76),
+    },
+    spacer: {
+      flex: 1,
+    },
+    button: {
+      width: px(BUTTON_SIZE),
+      height: px(BUTTON_SIZE),
+      borderRadius: radius.chipSmall,
+      borderWidth: 1,
+      borderColor: colors.text.ink,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    pressed: {
+      opacity: 0.6,
+    },
+    close: {
+      ...typography.closeMark,
+      color: colors.text.ink,
+    },
+  });
+}

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import {
   Pressable,
   ScrollView,
@@ -13,6 +13,7 @@ import { BottomNav, type TabKey } from '../components/BottomNav';
 import { BankIcon } from '../components/icons/WalletIcons';
 import { TransactionRow } from '../components/TransactionRow';
 import { useApi } from '../hooks/useApi';
+import { useResponsive } from '../hooks/useResponsive';
 import { fetchWallet } from '../services/api';
 import { colors, radius, spacing, typography } from '../theme';
 
@@ -41,6 +42,11 @@ export function WalletScreen({
   const transactions = wallet.data?.transactions ?? [];
 
   const insets = useSafeAreaInsets();
+  const { px, contentWidth, isTablet } = useResponsive();
+  const styles = useMemo(
+    () => createStyles(px, contentWidth, isTablet),
+    [px, contentWidth, isTablet],
+  );
 
   return (
     <View style={styles.screen}>
@@ -49,27 +55,29 @@ export function WalletScreen({
       <ScrollView contentContainerStyle={styles.body}>
         {/* Figma pads the header 48pt from the frame top, 1pt of which clears
             the status bar. */}
-        <View style={[styles.header, { paddingTop: insets.top + 1 }]}>
-          <Text style={styles.balanceLabel}>Total Wallet Balance</Text>
-          <Text style={styles.balance}>{balance?.total ?? '—'}</Text>
+        <View style={styles.headerBleed}>
+          <View style={[styles.header, { paddingTop: insets.top + 1 }]}>
+            <Text style={styles.balanceLabel}>Total Wallet Balance</Text>
+            <Text style={styles.balance}>{balance?.total ?? '—'}</Text>
 
-          <View style={styles.tiles}>
-            <Tile value={balance?.today ?? '—'} label="Today" />
-            <Tile value={balance?.monthly ?? '—'} label="Monthly" />
-            <Tile value={balance?.lifetime ?? '—'} label="Lifetime" />
+            <View style={styles.tiles}>
+              <Tile styles={styles} value={balance?.today ?? '—'} label="Today" />
+              <Tile styles={styles} value={balance?.monthly ?? '—'} label="Monthly" />
+              <Tile styles={styles} value={balance?.lifetime ?? '—'} label="Lifetime" />
+            </View>
+
+            <Pressable
+              accessibilityRole="button"
+              onPress={onWithdraw}
+              style={({ pressed }) => [
+                styles.withdraw,
+                pressed && styles.pressed,
+              ]}
+            >
+              <BankIcon size={px(ICON_SIZE)} />
+              <Text style={styles.withdrawLabel}>Request Withdraw Money</Text>
+            </Pressable>
           </View>
-
-          <Pressable
-            accessibilityRole="button"
-            onPress={onWithdraw}
-            style={({ pressed }) => [
-              styles.withdraw,
-              pressed && styles.pressed,
-            ]}
-          >
-            <BankIcon size={ICON_SIZE} />
-            <Text style={styles.withdrawLabel}>Request Withdraw Money</Text>
-          </Pressable>
         </View>
 
         <View style={styles.history}>
@@ -88,7 +96,15 @@ export function WalletScreen({
 }
 
 /** One of the header's three windows on earnings (Figma node 112:1206). */
-function Tile({ value, label }: { value: string; label: string }) {
+function Tile({
+  styles,
+  value,
+  label,
+}: {
+  styles: ReturnType<typeof createStyles>;
+  value: string;
+  label: string;
+}) {
   return (
     <View style={styles.tile}>
       <Text style={styles.tileValue}>{value}</Text>
@@ -97,80 +113,90 @@ function Tile({ value, label }: { value: string; label: string }) {
   );
 }
 
-const styles = StyleSheet.create({
-  screen: {
-    flex: 1,
-    backgroundColor: colors.canvas,
-  },
-  body: {
-    paddingBottom: spacing.lg,
-  },
-  header: {
-    backgroundColor: colors.brandYellow,
-    paddingHorizontal: spacing.lg,
-    paddingBottom: spacing.xl,
-  },
-  balanceLabel: {
-    ...typography.meta,
-    color: colors.text.onYellowMuted,
-  },
-  balance: {
-    ...typography.displayLarge,
-    color: colors.text.ink,
-    paddingTop: spacing.xs,
-  },
-  tiles: {
-    flexDirection: 'row',
-    gap: spacing.md,
-    paddingTop: spacing.lg,
-  },
-  tile: {
-    flex: 1,
-    alignItems: 'center',
-    paddingHorizontal: 10,
-    paddingVertical: spacing.md,
-    borderRadius: radius.field,
-    backgroundColor: colors.surfaceOnBrand,
-  },
-  tileValue: {
-    ...typography.tileValue,
-    color: colors.text.ink,
-    textAlign: 'center',
-  },
-  tileLabel: {
-    ...typography.tileLabel,
-    color: colors.text.onYellowMuted,
-    textAlign: 'center',
-    paddingTop: 2,
-  },
-  withdraw: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: spacing.sm,
-    height: BUTTON_HEIGHT,
-    marginTop: spacing.section,
-    borderRadius: radius.buttonOutline,
-    backgroundColor: colors.surfaceDark,
-  },
-  pressed: {
-    opacity: 0.8,
-  },
-  withdrawLabel: {
-    ...typography.buttonStrong,
-    color: colors.text.onDark,
-    textAlign: 'center',
-  },
-  history: {
-    paddingTop: spacing.lg,
-    paddingHorizontal: spacing.lg,
-  },
-  historyTitle: {
-    ...typography.sectionTitle,
-    color: colors.text.inkSoft,
-  },
-  transactions: {
-    paddingTop: 14,
-    gap: spacing.md,
-  },
-});
+function createStyles(px: (value: number) => number, contentWidth: number, isTablet: boolean) {
+  return StyleSheet.create({
+    screen: {
+      flex: 1,
+      backgroundColor: colors.canvas,
+    },
+    body: {
+      paddingBottom: spacing.lg,
+    },
+    headerBleed: {
+      backgroundColor: colors.brandYellow,
+    },
+    header: {
+      alignSelf: 'center',
+      width: '100%',
+      maxWidth: isTablet ? contentWidth : undefined,
+      paddingHorizontal: spacing.lg,
+      paddingBottom: spacing.xl,
+    },
+    balanceLabel: {
+      ...typography.meta,
+      color: colors.text.onYellowMuted,
+    },
+    balance: {
+      ...typography.displayLarge,
+      color: colors.text.ink,
+      paddingTop: spacing.xs,
+    },
+    tiles: {
+      flexDirection: 'row',
+      gap: spacing.md,
+      paddingTop: spacing.lg,
+    },
+    tile: {
+      flex: 1,
+      alignItems: 'center',
+      paddingHorizontal: 10,
+      paddingVertical: spacing.md,
+      borderRadius: radius.field,
+      backgroundColor: colors.surfaceOnBrand,
+    },
+    tileValue: {
+      ...typography.tileValue,
+      color: colors.text.ink,
+      textAlign: 'center',
+    },
+    tileLabel: {
+      ...typography.tileLabel,
+      color: colors.text.onYellowMuted,
+      textAlign: 'center',
+      paddingTop: 2,
+    },
+    withdraw: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: spacing.sm,
+      height: px(BUTTON_HEIGHT),
+      marginTop: spacing.section,
+      borderRadius: radius.buttonOutline,
+      backgroundColor: colors.surfaceDark,
+    },
+    pressed: {
+      opacity: 0.8,
+    },
+    withdrawLabel: {
+      ...typography.buttonStrong,
+      color: colors.text.onDark,
+      textAlign: 'center',
+    },
+    history: {
+      alignSelf: 'center',
+      width: '100%',
+      maxWidth: isTablet ? contentWidth : undefined,
+      paddingTop: spacing.lg,
+      paddingHorizontal: spacing.lg,
+    },
+    historyTitle: {
+      ...typography.sectionTitle,
+      color: colors.text.inkSoft,
+    },
+    transactions: {
+      paddingTop: 14,
+      gap: spacing.md,
+    },
+  });
+}

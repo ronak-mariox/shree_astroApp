@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import {
   KeyboardAvoidingView,
   Modal,
@@ -11,6 +11,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { SheetCloseIcon } from './icons/BankIcons';
+import { useResponsive } from '../hooks/useResponsive';
 import { colors, radius, spacing, typography } from '../theme';
 
 const HEADER_HEIGHT = 45.996;
@@ -35,6 +36,8 @@ export function BottomSheet({
   children,
 }: BottomSheetProps) {
   const insets = useSafeAreaInsets();
+  const { px, isTablet } = useResponsive();
+  const styles = useMemo(() => createStyles(px, isTablet), [px, isTablet]);
 
   return (
     <Modal
@@ -87,50 +90,63 @@ export function BottomSheet({
   );
 }
 
-const styles = StyleSheet.create({
-  stage: {
-    flex: 1,
-  },
-  lift: {
-    flex: 1,
-    justifyContent: 'flex-end',
-  },
-  scrim: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    top: 0,
-    bottom: 0,
-    // Figma dims the screen behind with flat black at half strength.
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-  },
-  sheet: {
-    flexShrink: 1,
-    borderTopLeftRadius: radius.input,
-    borderTopRightRadius: radius.input,
-    borderWidth: 1,
-    borderBottomWidth: 0,
-    borderColor: colors.border.sheet,
-    backgroundColor: colors.surface,
-    overflow: 'hidden',
-  },
-  body: {
-    flexShrink: 1,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    height: HEADER_HEIGHT,
-    paddingLeft: 10.95,
-    paddingRight: 10.9,
-    backgroundColor: colors.brandYellow,
-  },
-  title: {
-    ...typography.sheetHeading,
-    color: colors.text.ink,
-  },
-  pressed: {
-    opacity: 0.6,
-  },
-});
+/**
+ * On a tablet the sheet stops running edge to edge: it caps at a comfortable
+ * dialog width, centres itself, and rounds its bottom corners too instead of
+ * staying flush with the screen edges.
+ */
+function createStyles(px: (value: number) => number, isTablet: boolean) {
+  return StyleSheet.create({
+    stage: {
+      flex: 1,
+    },
+    lift: {
+      flex: 1,
+      justifyContent: 'flex-end',
+    },
+    scrim: {
+      position: 'absolute',
+      left: 0,
+      right: 0,
+      top: 0,
+      bottom: 0,
+      // Figma dims the screen behind with flat black at half strength.
+      backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    },
+    sheet: {
+      alignSelf: 'center',
+      width: '100%',
+      maxWidth: isTablet ? 480 : undefined,
+      marginBottom: isTablet ? px(spacing.xxl) : 0,
+      flexShrink: 1,
+      borderTopLeftRadius: radius.input,
+      borderTopRightRadius: radius.input,
+      borderBottomLeftRadius: isTablet ? radius.input : 0,
+      borderBottomRightRadius: isTablet ? radius.input : 0,
+      borderWidth: 1,
+      borderBottomWidth: isTablet ? 1 : 0,
+      borderColor: colors.border.sheet,
+      backgroundColor: colors.surface,
+      overflow: 'hidden',
+    },
+    body: {
+      flexShrink: 1,
+    },
+    header: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      height: px(HEADER_HEIGHT),
+      paddingLeft: px(10.95),
+      paddingRight: px(10.9),
+      backgroundColor: colors.brandYellow,
+    },
+    title: {
+      ...typography.sheetHeading,
+      color: colors.text.ink,
+    },
+    pressed: {
+      opacity: 0.6,
+    },
+  });
+}

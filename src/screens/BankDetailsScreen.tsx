@@ -17,6 +17,7 @@ import { TextField } from '../components/TextField';
 import { WizardFooter } from '../components/WizardFooter';
 import { WizardHeader } from '../components/WizardHeader';
 import { QUICK_SELECT_BANKS, REGISTRATION_STEPS } from '../data/registration';
+import { addBankAccount, submitApplication } from '../services/api';
 import {
   colors,
   hairline,
@@ -34,29 +35,69 @@ export type BankDetails = {
 };
 
 type BankDetailsScreenProps = {
+  /** Prefills the account holder's name — most payout accounts are the astrologer's own. */
+  holderNameDefault?: string;
   onBack?: () => void;
-  onSubmit?: (details: BankDetails) => void;
+  /** Fires once the account is filed and the application has been submitted for review. */
+  onSubmit?: () => void;
 };
 
 /**
  * Step 4 of registration: where the earnings land. The account number has to be
  * keyed twice and the two have to agree before the application can go in.
  * Figma: node 105:6583.
+ *
+ * Submitting here does two real things in sequence: files the bank account
+ * (`POST /astrologer/me/bank-accounts`), then closes the application out
+ * (`POST /astrologer/me/submit`) — the backend refuses that second call unless
+ * at least one document and one bank account are already on file, which by
+ * this point in the wizard they are.
  */
 export function BankDetailsScreen({
+  holderNameDefault = '',
   onBack,
   onSubmit,
 }: BankDetailsScreenProps) {
+  const [holderName, setHolderName] = useState(holderNameDefault);
   const [bankName, setBankName] = useState('');
   const [accountNumber, setAccountNumber] = useState('');
   const [confirmAccount, setConfirmAccount] = useState('');
   const [ifsc, setIfsc] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const isComplete =
+    holderName.trim().length > 0 &&
     bankName.trim().length > 0 &&
     accountNumber.length > 0 &&
     confirmAccount === accountNumber &&
     ifsc.trim().length > 0;
+
+  const submit = async () => {
+    if (!isComplete || submitting) {
+      return;
+    }
+    setSubmitting(true);
+    setError(null);
+
+    try {
+      await addBankAccount({
+        holderName,
+        bankName,
+        accountNumber,
+        confirmAccountNumber: confirmAccount,
+        ifsc,
+      });
+      await submitApplication();
+      onSubmit?.();
+    } catch (caught) {
+      setError(
+        (caught as Error)?.message ?? 'Something went wrong. Please try again.',
+      );
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   return (
     <View style={styles.screen}>
@@ -85,6 +126,14 @@ export function BankDetailsScreen({
             Earnings will be transferred to this account. Details are encrypted
             with bank-grade security.
           </InfoNote>
+
+          <TextField
+            label="Account Holder Name"
+            value={holderName}
+            onChangeText={setHolderName}
+            placeholder="As printed on the passbook"
+            autoCapitalize="words"
+          />
 
           <TextField
             label="Bank Name"
@@ -155,13 +204,15 @@ export function BankDetailsScreen({
               })}
             </View>
           </View>
+
+          {error !== null && <Text style={styles.error}>{error}</Text>}
         </ScrollView>
       </KeyboardAvoidingView>
 
       <WizardFooter
-        label="Submit Application"
-        disabled={!isComplete}
-        onPress={() => onSubmit?.({ bankName, accountNumber, ifsc })}
+        label={submitting ? 'Submitting…' : 'Submit Application'}
+        disabled={!isComplete || submitting}
+        onPress={submit}
         onBack={onBack}
       />
     </View>
@@ -219,5 +270,10 @@ const styles = StyleSheet.create({
   },
   bankLabelSelected: {
     color: colors.text.ink,
+  },
+  error: {
+    ...typography.caption,
+    color: colors.status.danger,
+    textAlign: 'center',
   },
 });

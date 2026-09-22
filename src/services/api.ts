@@ -13,16 +13,43 @@
 
 import { client } from './client';
 import {
+  connectSocket,
+  disconnectSocket,
+  sendChatMessage,
+  subscribeToChat,
+  subscribeToIncomingRequests as subscribeToIncomingRequestsRaw,
+} from './socket';
+import {
   type BankAccount,
   type BankAccountDraft,
   type BankTransaction,
   validateBankAccount,
 } from '../data/bank';
-import { type UploadedDocument } from '../data/documents';
+import { DOCUMENT_TYPE_IDS, type UploadedDocument } from '../data/documents';
+import { type GalleryPhoto } from '../data/gallery';
 import { type PriceChangeDraft, type ServiceRate, validatePriceChange } from '../data/priceChange';
 import { type AstrologerProfile } from '../data/profile';
 import { type Review } from '../data/reviews';
 import { validateDispute, type Dispute } from '../data/support';
+import {
+  DUMMY_BANK_ACCOUNTS,
+  DUMMY_DASHBOARD,
+  DUMMY_DOCUMENTS,
+  DUMMY_EARNINGS,
+  DUMMY_GALLERY,
+  DUMMY_HISTORY,
+  DUMMY_MESSAGES,
+  DUMMY_MISSED_CONSULTATIONS,
+  DUMMY_NOTIFICATION_FEED,
+  DUMMY_PROFILE,
+  DUMMY_REQUESTS,
+  DUMMY_REVIEWS,
+  DUMMY_SERVICE_RATES,
+  DUMMY_TRANSACTIONS,
+  DUMMY_WALLET,
+  DUMMY_WITHDRAWALS,
+} from './dummyData';
+import { USE_DUMMY_CONSULT, USE_DUMMY_DATA, USE_DUMMY_PROFILE } from './dummyMode';
 
 /* -------------------------------------------------------------------------- */
 /* Translating between the API's ids and the screens' words                   */
@@ -95,12 +122,14 @@ function toProfile(astrologer: any): AstrologerProfile {
     experience: astrologer.experienceYears ? `${astrologer.experienceYears} years` : '',
     skill: joinLabels(astrologer.expertise),
     about: astrologer.about ?? '',
-    photoFileName: astrologer.photo ?? undefined,
+    photoUrl: astrologer.photoUrl ?? undefined,
+    applicationStatus: astrologer.applicationStatus,
   };
 }
 
 /** GET /astrologer/profile */
 export async function fetchProfile(): Promise<AstrologerProfile> {
+  if (USE_DUMMY_PROFILE) return DUMMY_PROFILE;
   const { data } = await client.get('/astrologer/me');
   return toProfile(data.astrologer);
 }
@@ -113,6 +142,11 @@ export async function fetchProfile(): Promise<AstrologerProfile> {
  * a rate change has to be approved.
  */
 export async function saveProfile(profile: AstrologerProfile): Promise<AstrologerProfile> {
+  if (USE_DUMMY_PROFILE) {
+    Object.assign(DUMMY_PROFILE, profile);
+    return { ...DUMMY_PROFILE };
+  }
+
   const { data } = await client.patch('/astrologer/me', {
     name: profile.fullName.trim(),
     email: profile.email.trim() || undefined,
@@ -140,6 +174,11 @@ export async function saveProfile(profile: AstrologerProfile): Promise<Astrologe
 export async function uploadProfilePhoto(
   photo: string | { uri: string; name?: string; type?: string },
 ): Promise<AstrologerProfile> {
+  if (USE_DUMMY_PROFILE) {
+    DUMMY_PROFILE.photoUrl = typeof photo === 'string' ? photo : photo.name || 'profile.jpg';
+    return { ...DUMMY_PROFILE };
+  }
+
   if (typeof photo === 'string') {
     const { data } = await client.patch('/astrologer/me', { photoUrl: photo });
     return toProfile(data.astrologer);
@@ -154,6 +193,55 @@ export async function uploadProfilePhoto(
 
   const { data } = await client.patch('/astrologer/me', form);
   return toProfile(data.astrologer);
+}
+
+/* -------------------------------------------------------------------- gallery */
+
+/**
+ * The portfolio gallery on Edit Profile — separate from the single profile
+ * photo above; an astrologer can file several of these.
+ */
+function toGalleryImage(item: any): GalleryPhoto {
+  return { id: String(item._id ?? item.id), url: item.file?.url ?? item.url };
+}
+
+/** GET /astrologer/gallery */
+export async function fetchGallery(): Promise<GalleryPhoto[]> {
+  if (USE_DUMMY_PROFILE) return DUMMY_GALLERY;
+  const { data } = await client.get('/astrologer/me/gallery');
+  return (data.items ?? []).map(toGalleryImage);
+}
+
+/** POST /astrologer/gallery */
+export async function addGalleryImage(
+  file: { uri: string; name?: string; type?: string },
+): Promise<GalleryPhoto[]> {
+  if (USE_DUMMY_PROFILE) {
+    DUMMY_GALLERY.push({ id: `gallery-${DUMMY_GALLERY.length + 1}`, url: file.uri });
+    return DUMMY_GALLERY;
+  }
+
+  const form = new FormData();
+  form.append('image', {
+    uri: file.uri,
+    name: file.name || 'gallery.jpg',
+    type: file.type || 'image/jpeg',
+  } as unknown as Blob);
+
+  const { data } = await client.post('/astrologer/me/gallery', form);
+  return (data.items ?? []).map(toGalleryImage);
+}
+
+/** DELETE /astrologer/gallery/:id */
+export async function deleteGalleryImage(id: string): Promise<GalleryPhoto[]> {
+  if (USE_DUMMY_PROFILE) {
+    const index = DUMMY_GALLERY.findIndex(entry => entry.id === id);
+    if (index !== -1) DUMMY_GALLERY.splice(index, 1);
+    return DUMMY_GALLERY;
+  }
+
+  const { data } = await client.delete(`/astrologer/me/gallery/${id}`);
+  return (data.items ?? []).map(toGalleryImage);
 }
 
 /* ----------------------------------------------------------------------- bank */
@@ -173,6 +261,7 @@ function toBankAccount(account: any): BankAccount {
 
 /** GET /astrologer/bank-accounts */
 export async function fetchBankAccounts(): Promise<BankAccount[]> {
+  if (USE_DUMMY_PROFILE) return DUMMY_BANK_ACCOUNTS;
   const { data } = await client.get('/astrologer/me/bank-accounts');
   return (data.items ?? []).map(toBankAccount);
 }
@@ -190,6 +279,21 @@ export async function addBankAccount(
   const problem = validateBankAccount(draft);
   if (problem) {
     throw new Error(problem);
+  }
+
+  if (USE_DUMMY_PROFILE) {
+    const account: BankAccount = {
+      id: `bank-${DUMMY_BANK_ACCOUNTS.length + 1}`,
+      holderName: draft.holderName.trim(),
+      bankName: draft.bankName.trim(),
+      accountNumber: draft.accountNumber.trim(),
+      ifsc: draft.ifsc.trim().toUpperCase(),
+      createdDate: shortDate(new Date().toISOString()),
+      status: 'Pending',
+      proofFileName: proof?.name ?? (proof ? 'proof.jpg' : undefined),
+    };
+    DUMMY_BANK_ACCOUNTS.push(account);
+    return account;
   }
 
   const form = new FormData();
@@ -212,6 +316,7 @@ export async function addBankAccount(
 
 /** GET /astrologer/transactions — the earnings ledger. */
 export async function fetchTransactions(): Promise<BankTransaction[]> {
+  if (USE_DUMMY_DATA) return DUMMY_TRANSACTIONS;
   const { data } = await client.get('/wallet/transactions', { params: { limit: 50 } });
 
   return (data.items ?? []).map((row: any) => ({
@@ -237,6 +342,7 @@ function toDocument(document: any): UploadedDocument {
 
 /** GET /astrologer/documents */
 export async function fetchDocuments(): Promise<UploadedDocument[]> {
+  if (USE_DUMMY_PROFILE) return DUMMY_DOCUMENTS;
   const { data } = await client.get('/astrologer/me/documents');
   return (data.items ?? []).map(toDocument);
 }
@@ -254,8 +360,29 @@ export async function uploadDocument(input: {
     throw new Error('Pick a file to upload.');
   }
 
+  if (USE_DUMMY_PROFILE) {
+    const document: UploadedDocument = {
+      id: `doc-${DUMMY_DOCUMENTS.length + 1}`,
+      type: input.type,
+      idNumber: input.idNumber.trim(),
+      status: 'Pending',
+      fileName: input.file.name || 'document.jpg',
+    };
+    DUMMY_DOCUMENTS.push(document);
+    return document;
+  }
+
   const form = new FormData();
-  form.append('type', toId(input.type).replace(/-/g, '_'));
+  /**
+   * `input.type` is either one of the sheet's human labels ("Aadhar Card
+   * Front") or, from the registration wizard, an id already in the backend's
+   * own shape ("aadhaar_front") — `DOCUMENT_TYPE_IDS` maps the former; the
+   * fallback passes the latter through unchanged. Naively slugifying the
+   * label instead (the old `toId(...).replace('-','_')`) does not match the
+   * backend's actual enum (no "card", "aadhaar" not "aadhar"), so every
+   * upload from the sheet would have 500'd on a Mongoose enum mismatch.
+   */
+  form.append('type', DOCUMENT_TYPE_IDS[input.type] ?? input.type);
   form.append('idNumber', input.idNumber.trim());
   form.append('file', {
     uri: input.file.uri,
@@ -278,6 +405,16 @@ export async function replaceDocument(
   id: string,
   file: { uri: string; name?: string; type?: string },
 ): Promise<UploadedDocument> {
+  if (USE_DUMMY_PROFILE) {
+    const document = DUMMY_DOCUMENTS.find(entry => entry.id === id);
+    if (!document) {
+      throw new Error('That document is no longer listed.');
+    }
+    document.status = 'Pending';
+    document.fileName = file.name || 'document.jpg';
+    return document;
+  }
+
   const form = new FormData();
   form.append('file', {
     uri: file.uri,
@@ -291,6 +428,11 @@ export async function replaceDocument(
 
 /** DELETE /astrologer/documents/:id */
 export async function deleteDocument(id: string): Promise<void> {
+  if (USE_DUMMY_PROFILE) {
+    const index = DUMMY_DOCUMENTS.findIndex(entry => entry.id === id);
+    if (index !== -1) DUMMY_DOCUMENTS.splice(index, 1);
+    return;
+  }
   await client.delete(`/astrologer/me/documents/${id}`);
 }
 
@@ -302,6 +444,8 @@ export async function submitDispute(dispute: Dispute): Promise<void> {
   if (problem) {
     throw new Error(problem);
   }
+
+  if (USE_DUMMY_DATA) return;
 
   await client.post('/support/tickets', {
     issueType: dispute.issueType,
@@ -335,6 +479,7 @@ function toServiceRate(row: any): ServiceRate {
 
 /** GET /astrologer/service-rates */
 export async function fetchServiceRates(): Promise<ServiceRate[]> {
+  if (USE_DUMMY_PROFILE) return DUMMY_SERVICE_RATES;
   const { data } = await client.get('/astrologer/me/service-rates');
   return (data.items ?? []).map(toServiceRate);
 }
@@ -351,14 +496,27 @@ export async function requestPriceChange(draft: PriceChangeDraft): Promise<Servi
     throw new Error(problem);
   }
 
+  const serviceId = toId(draft.service).replace(/-/g, '_');
+
+  if (USE_DUMMY_PROFILE) {
+    const rate = DUMMY_SERVICE_RATES.find(entry => entry.id === serviceId);
+    if (!rate) {
+      throw new Error(`There is no "${draft.service}" service to reprice.`);
+    }
+    rate.newRequestedRate = rupees(amountOf(draft.newPrice));
+    rate.requestDate = shortDate(new Date().toISOString());
+    rate.status = 'Pending';
+    return rate;
+  }
+
   await client.post('/astrologer/me/price-changes', {
-    service: toId(draft.service).replace(/-/g, '_'),
+    service: serviceId,
     requestedRate: amountOf(draft.newPrice),
   });
 
   /** Read the table back, so the row reflects what the server actually stored. */
   const rates = await fetchServiceRates();
-  const updated = rates.find(rate => rate.id === toId(draft.service).replace(/-/g, '_'));
+  const updated = rates.find(rate => rate.id === serviceId);
   if (!updated) {
     throw new Error(`There is no "${draft.service}" service to reprice.`);
   }
@@ -372,8 +530,19 @@ export async function requestPriceChange(draft: PriceChangeDraft): Promise<Servi
  * to go through requestPriceChange for approval.
  */
 export async function setOpeningRates(
-  services: Array<{ type: string; ratePerMinute: number; freeMinutes?: number }>,
+  services: Array<{ type: string; ratePerMinute: number }>,
 ): Promise<ServiceRate[]> {
+  if (USE_DUMMY_PROFILE) {
+    for (const service of services) {
+      const rate = DUMMY_SERVICE_RATES.find(entry => entry.id === service.type);
+      if (rate) {
+        rate.oldRate = rupees(service.ratePerMinute);
+        rate.currentRate = rupees(service.ratePerMinute);
+      }
+    }
+    return DUMMY_SERVICE_RATES;
+  }
+
   await client.put('/astrologer/me/rates', {
     services: services.map(service => ({ ...service, isEnabled: true })),
   });
@@ -406,6 +575,7 @@ function toReview(review: any): Review {
 
 /** GET /astrologer/reviews */
 export async function fetchReviews(): Promise<Review[]> {
+  if (USE_DUMMY_PROFILE) return DUMMY_REVIEWS;
   const { data } = await client.get('/astrologer/me/reviews', { params: { limit: 50 } });
   return (data.items ?? []).map(toReview);
 }
@@ -418,6 +588,15 @@ export async function replyToReview(
 ): Promise<Review> {
   if (!message.trim()) {
     throw new Error('Write a reply before sending it.');
+  }
+
+  if (USE_DUMMY_PROFILE) {
+    const review = DUMMY_REVIEWS.find(entry => entry.id === id);
+    if (!review) {
+      throw new Error('That review is no longer listed.');
+    }
+    review.reply = { author, message: message.trim() };
+    return review;
   }
 
   await client.post(`/astrologer/me/reviews/${id}/reply`, { message: message.trim() });
@@ -436,6 +615,15 @@ export async function replyToReview(
  * Flags are rationed, so this can fail once the monthly allowance is gone.
  */
 export async function toggleReviewFlag(id: string): Promise<Review> {
+  if (USE_DUMMY_PROFILE) {
+    const review = DUMMY_REVIEWS.find(entry => entry.id === id);
+    if (!review) {
+      throw new Error('That review is no longer listed.');
+    }
+    review.flagged = !review.flagged;
+    return review;
+  }
+
   const { data } = await client.post(`/astrologer/me/reviews/${id}/flag`, {});
   const reviews = await fetchReviews();
   const updated = reviews.find(review => review.id === id);
@@ -444,6 +632,15 @@ export async function toggleReviewFlag(id: string): Promise<Review> {
 
 /** POST /astrologer/reviews/:id/pin — holds it at the top of the public profile. */
 export async function toggleReviewPin(id: string): Promise<Review> {
+  if (USE_DUMMY_PROFILE) {
+    const review = DUMMY_REVIEWS.find(entry => entry.id === id);
+    if (!review) {
+      throw new Error('That review is no longer listed.');
+    }
+    review.pinned = !review.pinned;
+    return review;
+  }
+
   const { data } = await client.post(`/astrologer/me/reviews/${id}/pin`, {});
   const reviews = await fetchReviews();
   const updated = reviews.find(review => review.id === id);
@@ -468,7 +665,8 @@ export type Dashboard = {
     isEnabled: boolean;
     ratePerMinute: number;
     effectiveRate: number;
-    freeMinutes: number;
+    /** "9:00 AM - 9:00 PM", the window the Services card prints it live in. */
+    onlineTime?: string;
   }>;
   pendingRequests: number;
   /** Profile fields still to fill in — the app nudges for exactly these. */
@@ -478,18 +676,42 @@ export type Dashboard = {
 
 /** GET /astrologer/dashboard */
 export async function fetchDashboard(): Promise<Dashboard> {
+  if (USE_DUMMY_DATA) return DUMMY_DASHBOARD;
   const { data } = await client.get('/astrologer/me/dashboard');
   return data;
 }
 
-/** PATCH /astrologer/presence — the dashboard's availability toggle. */
+/**
+ * PATCH /astrologer/presence — the dashboard's availability toggle.
+ *
+ * The backend ties `presence.isOnline` to this very socket's connect/
+ * disconnect (see backend/socket/index.js), so the toggle is what opens and
+ * closes the live connection: going online opens it, going offline (or the
+ * app backgrounding/being killed) closes it and the server marks the
+ * astrologer offline on its own.
+ */
 export async function setOnline(isOnline: boolean): Promise<boolean> {
+  if (USE_DUMMY_DATA) {
+    DUMMY_DASHBOARD.isOnline = isOnline;
+    return isOnline;
+  }
   const { data } = await client.patch('/astrologer/me/presence', { isOnline });
-  return Boolean(data.presence?.isOnline);
+  const confirmed = Boolean(data.presence?.isOnline);
+  if (confirmed) {
+    connectSocket();
+  } else {
+    disconnectSocket();
+  }
+  return confirmed;
 }
 
 /** PATCH /astrologer/services — switch a service on or off. */
 export async function setServiceEnabled(type: string, isEnabled: boolean): Promise<void> {
+  if (USE_DUMMY_DATA) {
+    const service = DUMMY_DASHBOARD.services.find(entry => entry.type === type);
+    if (service) service.isEnabled = isEnabled;
+    return;
+  }
   await client.patch('/astrologer/me/services', { type, isEnabled });
 }
 
@@ -512,41 +734,133 @@ export type IncomingRequest = {
 
 /** GET /astrologer/requests — the queue behind the incoming-request popup. */
 export async function fetchRequests(): Promise<IncomingRequest[]> {
+  if (USE_DUMMY_CONSULT) return DUMMY_REQUESTS;
   const { data } = await client.get('/astrologer/me/requests');
   return data.items ?? [];
 }
 
+/** Drops an answered request out of the dummy queue, same as the server would. */
+function removeDummyRequest(chatId: string) {
+  const index = DUMMY_REQUESTS.findIndex(request => request.chatId === chatId);
+  if (index !== -1) DUMMY_REQUESTS.splice(index, 1);
+  DUMMY_DASHBOARD.pendingRequests = Math.max(0, DUMMY_DASHBOARD.pendingRequests - 1);
+}
+
 export async function acceptRequest(chatId: string) {
+  if (USE_DUMMY_CONSULT) {
+    removeDummyRequest(chatId);
+    return { chatId, status: 'active' };
+  }
   const { data } = await client.post(`/chats/${chatId}/accept`, {});
   return data;
 }
 
 export async function rejectRequest(chatId: string, reason?: string) {
+  if (USE_DUMMY_CONSULT) {
+    removeDummyRequest(chatId);
+    return { chatId, status: 'rejected', reason };
+  }
   const { data } = await client.post(`/chats/${chatId}/reject`, { reason });
   return data;
 }
 
 export async function endConsultation(chatId: string, reason?: string) {
+  if (USE_DUMMY_CONSULT) return { chatId, status: 'ended', reason };
   const { data } = await client.post(`/chats/${chatId}/end`, { reason });
   return data;
 }
 
+/** One session's live state — status, the frozen rate, and the server-computed startedAt the running clock ticks from. What the chat screen loads on open. */
+export async function getChatState(chatId: string) {
+  if (USE_DUMMY_CONSULT) {
+    return {
+      chatId,
+      role: 'astrologer' as const,
+      channel: 'chat',
+      status: 'active',
+      startedAt: new Date().toISOString(),
+      ratePerMinute: 0,
+      minutesBilled: 0,
+      amountCharged: 0,
+    };
+  }
+  const { data } = await client.get(`/chats/${chatId}`);
+  return data as {
+    chatId: string;
+    role: 'user' | 'astrologer';
+    channel: string;
+    status: string;
+    startedAt?: string;
+    ratePerMinute: number;
+    minutesBilled: number;
+    amountCharged: number;
+    endedAt?: string;
+    endReason?: string;
+  };
+}
+
+/**
+ * Live updates for one open consultation — messages and the end, however it
+ * comes (either side, or the server's own grace-period cutoff). Returns the
+ * unsubscribe function.
+ */
+export const subscribeToConsultation = subscribeToChat;
+
+/**
+ * The incoming-request queue's live half: a new request landing in the
+ * astrologer's own account room, or the seeker cancelling one still waiting
+ * on an answer. Returns the unsubscribe function.
+ */
+export const subscribeToIncomingRequests = subscribeToIncomingRequestsRaw;
+
+/**
+ * The live connection's lifecycle — opened and closed by `setOnline` above.
+ * Exposed here too as a safety net for sign-out, which must never leave a
+ * socket connected once nobody is signed in.
+ */
+export const disconnectLiveUpdates = disconnectSocket;
+
 /** GET /chats — the history screens. */
 export async function fetchConsultations(status?: string) {
+  if (USE_DUMMY_CONSULT) return DUMMY_MISSED_CONSULTATIONS;
   const { data } = await client.get('/chats', { params: { status, limit: 50 } });
   return data.items ?? [];
 }
 
 /** GET /chats/:id/messages — the transcript, oldest first. */
 export async function fetchMessages(chatId: string, beforeSeq?: number) {
+  if (USE_DUMMY_CONSULT) return DUMMY_MESSAGES;
   const { data } = await client.get(`/chats/${chatId}/messages`, {
     params: { beforeSeq, limit: 50 },
   });
   return data.items ?? [];
 }
 
-/** POST /chats/:id/messages — the fallback when the socket is down. */
+/**
+ * Sends a message. Goes out over the live socket when there is one — that is
+ * also what makes the seeker see it arrive instantly — and falls back to a
+ * plain HTTP post (still delivered, just not instant) when the connection is
+ * down.
+ */
 export async function sendMessage(chatId: string, text: string, clientMessageId?: string) {
+  if (USE_DUMMY_CONSULT) {
+    const message = {
+      id: clientMessageId ?? `msg-${DUMMY_MESSAGES.length + 1}`,
+      senderRole: 'astrologer',
+      content: { text },
+      createdAt: new Date().toISOString(),
+    };
+    DUMMY_MESSAGES.push(message);
+    return message;
+  }
+
+  try {
+    const result = await sendChatMessage(chatId, text, clientMessageId ?? `local-${Date.now()}`);
+    return result.message;
+  } catch {
+    /** No socket, or it rejected — fall back to the REST path. */
+  }
+
   const { data } = await client.post(`/chats/${chatId}/messages`, {
     type: 'text',
     content: { text },
@@ -559,18 +873,33 @@ export async function sendMessage(chatId: string, text: string, clientMessageId?
 
 /** GET /wallet — the earnings header. */
 export async function fetchEarnings() {
+  if (USE_DUMMY_DATA) return DUMMY_EARNINGS;
   const { data } = await client.get('/wallet');
   return data.earnings;
 }
 
 /** POST /wallet/withdrawals — ask to be paid out. */
 export async function requestWithdrawal(amount: number, bankAccountId?: string) {
+  if (USE_DUMMY_DATA) {
+    const withdrawal = {
+      id: `wd-${DUMMY_WITHDRAWALS.length + 1}`,
+      reference: `WDL-${Math.random().toString(36).slice(2, 8).toUpperCase()}`,
+      amount,
+      status: 'pending',
+      requestedAt: new Date().toISOString(),
+    };
+    DUMMY_WITHDRAWALS.unshift(withdrawal);
+    DUMMY_EARNINGS.balance = Math.max(0, DUMMY_EARNINGS.balance - amount);
+    DUMMY_DASHBOARD.earnings.balance = DUMMY_EARNINGS.balance;
+    return withdrawal;
+  }
   const { data } = await client.post('/wallet/withdrawals', { amount, bankAccountId });
   return data.withdrawal;
 }
 
 /** GET /wallet/withdrawals — payout history. */
 export async function fetchWithdrawals() {
+  if (USE_DUMMY_DATA) return DUMMY_WITHDRAWALS;
   const { data } = await client.get('/wallet/withdrawals', { params: { limit: 50 } });
   return data.items ?? [];
 }
@@ -578,17 +907,30 @@ export async function fetchWithdrawals() {
 /* -------------------------------------------------------------- notifications */
 
 export async function fetchNotifications() {
+  if (USE_DUMMY_DATA) return { items: DUMMY_NOTIFICATION_FEED };
   const { data } = await client.get('/notifications', { params: { limit: 50 } });
   return data;
 }
 
 export async function markNotificationsRead(notificationId?: string) {
+  if (USE_DUMMY_DATA) {
+    for (const notification of DUMMY_NOTIFICATION_FEED) {
+      if (!notificationId || notification.id === notificationId) {
+        notification.unread = false;
+      }
+    }
+    return { ok: true };
+  }
   const { data } = await client.post('/notifications/read', { notificationId });
   return data;
 }
 
 /** POST /astrologer/submit — hand the application to the admins. */
 export async function submitApplication() {
+  if (USE_DUMMY_PROFILE) {
+    DUMMY_DASHBOARD.applicationStatus = 'under_review';
+    return { applicationStatus: DUMMY_DASHBOARD.applicationStatus };
+  }
   const { data } = await client.post('/astrologer/me/submit', {});
   return data;
 }
@@ -613,6 +955,8 @@ export async function fetchWallet(): Promise<{
     kind: 'credit' | 'withdrawal' | 'fee';
   }>;
 }> {
+  if (USE_DUMMY_DATA) return DUMMY_WALLET;
+
   const [earnings, ledger] = await Promise.all([
     fetchEarnings(),
     client.get('/wallet/transactions', { params: { limit: 50 } }),
@@ -668,6 +1012,8 @@ export async function fetchHistory(variant: 'chat' | 'call'): Promise<{
     refundDate: string;
   }>;
 }> {
+  if (USE_DUMMY_DATA) return DUMMY_HISTORY[variant];
+
   const { data } = await client.get('/chats', {
     params: { status: 'ended', limit: 50 },
   });
@@ -738,6 +1084,8 @@ function ageOf(at: string): string {
 export async function fetchNotificationFeed(): Promise<
   Array<{ id: string; kind: string; title: string; body: string; age: string; unread: boolean }>
 > {
+  if (USE_DUMMY_DATA) return DUMMY_NOTIFICATION_FEED;
+
   const feed = await fetchNotifications();
   return (feed?.items ?? []).map((row: any) => ({
     id: String(row._id),

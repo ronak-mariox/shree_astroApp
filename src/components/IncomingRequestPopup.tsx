@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import {
   Modal,
   Platform,
@@ -14,6 +14,7 @@ import type { ConsultationRequest } from './RequestCard';
 import { ChatBubbleIcon, CloseIcon, PhoneIcon } from './icons/DashboardIcons';
 import { CheckIcon } from './icons/CheckIcon';
 import { INCOMING_STARS, StarField } from './StarField';
+import { useResponsive } from '../hooks/useResponsive';
 import { colors, hairline, radius, spacing, stroke, typography } from '../theme';
 
 const AVATAR_SIZE = 95.996;
@@ -67,12 +68,14 @@ function PopupBody({
   onDecline: (request: ConsultationRequest) => void;
 }) {
   const insets = useSafeAreaInsets();
+  const { px } = useResponsive();
+  const styles = useMemo(() => createStyles(px), [px]);
   const { details } = request;
   const isChat = request.channel === 'chat';
 
   return (
     <View style={styles.screen}>
-      <StarField stars={INCOMING_STARS} frameHeight={FRAME_HEIGHT} />
+      <StarField stars={INCOMING_STARS} frameHeight={px(FRAME_HEIGHT)} />
 
       {/* Centred on a tall screen, scrollable on a short one, and always clear
           of the status bar and the home indicator. */}
@@ -96,9 +99,9 @@ function PopupBody({
 
         <View style={styles.tag}>
           {isChat ? (
-            <ChatBubbleIcon size={TAG_ICON_SIZE} color={colors.text.ink} />
+            <ChatBubbleIcon size={px(TAG_ICON_SIZE)} color={colors.text.ink} />
           ) : (
-            <PhoneIcon size={TAG_ICON_SIZE} color={colors.text.ink} />
+            <PhoneIcon size={px(TAG_ICON_SIZE)} color={colors.text.ink} />
           )}
           <Text style={styles.tagLabel}>
             {isChat ? 'Chat' : 'Voice'} Consultation
@@ -106,11 +109,11 @@ function PopupBody({
         </View>
 
         <View style={styles.card}>
-          <DetailRow label="Date of Birth" value={details.dateOfBirth} />
-          <DetailRow label="Birth Place" value={details.birthPlace} />
-          <DetailRow label="Issue" value={details.issue} />
-          <DetailRow label="Rate" value={details.rate} />
-          <DetailRow label="Est. Duration" value={details.duration} />
+          <DetailRow styles={styles} label="Date of Birth" value={details.dateOfBirth} />
+          <DetailRow styles={styles} label="Birth Place" value={details.birthPlace} />
+          <DetailRow styles={styles} label="Issue" value={details.issue} />
+          <DetailRow styles={styles} label="Rate" value={details.rate} />
+          <DetailRow styles={styles} label="Est. Duration" value={details.duration} />
         </View>
 
         <Text style={styles.earnings}>
@@ -129,7 +132,7 @@ function PopupBody({
               pressed && styles.pressed,
             ]}
           >
-            <CloseIcon size={ACTION_ICON_SIZE} />
+            <CloseIcon size={px(ACTION_ICON_SIZE)} />
             <Text style={[styles.actionLabel, styles.declineLabel]}>
               Decline
             </Text>
@@ -146,7 +149,7 @@ function PopupBody({
             ]}
           >
             <CheckIcon
-              size={ACTION_ICON_SIZE}
+              size={px(ACTION_ICON_SIZE)}
               color={colors.text.inverse}
             />
             <Text style={[styles.actionLabel, styles.acceptLabel]}>Accept</Text>
@@ -157,7 +160,15 @@ function PopupBody({
   );
 }
 
-function DetailRow({ label, value }: { label: string; value: string }) {
+function DetailRow({
+  styles,
+  label,
+  value,
+}: {
+  styles: ReturnType<typeof createStyles>;
+  label: string;
+  value: string;
+}) {
   return (
     <View style={styles.row}>
       <Text style={styles.rowLabel}>{label}</Text>
@@ -166,7 +177,8 @@ function DetailRow({ label, value }: { label: string; value: string }) {
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(px: (value: number) => number) {
+  return StyleSheet.create({
   screen: {
     flex: 1,
     backgroundColor: colors.canvas,
@@ -181,9 +193,9 @@ const styles = StyleSheet.create({
     paddingBottom: spacing.section,
   },
   avatar: {
-    width: AVATAR_SIZE,
-    height: AVATAR_SIZE,
-    borderRadius: AVATAR_SIZE / 2,
+    width: px(AVATAR_SIZE),
+    height: px(AVATAR_SIZE),
+    borderRadius: px(AVATAR_SIZE) / 2,
     backgroundColor: colors.brandYellow,
     alignItems: 'center',
     justifyContent: 'center',
@@ -225,9 +237,9 @@ const styles = StyleSheet.create({
     color: colors.text.ink,
   },
   card: {
-    width: CARD_WIDTH,
+    width: px(CARD_WIDTH),
     marginTop: spacing.lg,
-    padding: 16.755,
+    padding: px(16.755),
     borderRadius: radius.card,
     borderWidth: hairline,
     borderColor: colors.border.glass,
@@ -239,7 +251,7 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     justifyContent: 'space-between',
     paddingTop: spacing.sm,
-    paddingBottom: 8.755,
+    paddingBottom: px(8.755),
     borderBottomWidth: hairline,
     borderBottomColor: colors.border.rowFaint,
   },
@@ -263,12 +275,12 @@ const styles = StyleSheet.create({
   actions: {
     flexDirection: 'row',
     gap: spacing.section,
-    width: CARD_WIDTH,
+    width: px(CARD_WIDTH),
     paddingTop: spacing.xl,
   },
   action: {
     flex: 1,
-    height: ACTION_HEIGHT,
+    height: px(ACTION_HEIGHT),
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -296,4 +308,5 @@ const styles = StyleSheet.create({
   acceptLabel: {
     color: colors.text.inverse,
   },
-});
+  });
+}

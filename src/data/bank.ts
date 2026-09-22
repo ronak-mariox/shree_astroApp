@@ -59,27 +59,27 @@ export const BANK_ACCOUNT_FIELDS: ReadonlyArray<BankAccountField> = [
   {
     key: 'holderName',
     label: 'Account Holder Name*',
-    placeholder: 'Select Category',
+    placeholder: 'Enter account holder name',
   },
   {
     key: 'accountNumber',
     label: 'Bank Account Number*',
-    placeholder: 'For better health, subah',
+    placeholder: 'Enter bank account number',
   },
   {
     key: 'confirmAccountNumber',
     label: 'Confirm Bank Account Number*',
-    placeholder: 'Select Category',
+    placeholder: 'Re-enter bank account number',
   },
   {
     key: 'ifsc',
     label: 'IFSC Code *',
-    placeholder: 'For better health, subah',
+    placeholder: 'e.g. SBIN0001234',
   },
   {
     key: 'bankName',
     label: 'Bank Name *',
-    placeholder: 'Select Category',
+    placeholder: 'Enter bank name',
   },
 ];
 
@@ -91,6 +91,13 @@ export const EMPTY_BANK_ACCOUNT: BankAccountDraft = {
   bankName: '',
 };
 
+/**
+ * Four letters (the bank), a literal `0` (reserved), then six letters or
+ * digits (the branch) — matches the backend's own `bankAccountSchema.ifsc`
+ * pattern exactly, so a bad code is caught here rather than on a round trip.
+ */
+const IFSC_PATTERN = /^[A-Z]{4}0[A-Z0-9]{6}$/;
+
 /** Everything the sheet needs before it will accept a new account. */
 export function validateBankAccount(draft: BankAccountDraft): string | null {
   if (!draft.holderName.trim()) return 'Enter the account holder’s name.';
@@ -99,6 +106,9 @@ export function validateBankAccount(draft: BankAccountDraft): string | null {
     return 'The two account numbers do not match.';
   }
   if (!draft.ifsc.trim()) return 'Enter the IFSC code.';
+  if (!IFSC_PATTERN.test(draft.ifsc.trim().toUpperCase())) {
+    return 'Enter a valid IFSC code.';
+  }
   if (!draft.bankName.trim()) return 'Enter the bank name.';
   return null;
 }

@@ -10,6 +10,7 @@
 
 import type { BankAccount, BankAccountDraft, BankTransaction } from '../../src/data/bank';
 import type { UploadedDocument } from '../../src/data/documents';
+import type { GalleryPhoto } from '../../src/data/gallery';
 import type { PriceChangeDraft, ServiceRate } from '../../src/data/priceChange';
 import type { AstrologerProfile } from '../../src/data/profile';
 import type { Review } from '../../src/data/reviews';
@@ -19,6 +20,7 @@ import {
   CHAT_TRANSCRIPT,
   FIXTURE_BANK_ACCOUNTS,
   FIXTURE_DOCUMENTS,
+  FIXTURE_GALLERY,
   FIXTURE_PROFILE,
   FIXTURE_REVIEWS,
   FIXTURE_SERVICE_RATES,
@@ -62,8 +64,8 @@ const FIXTURE_REQUESTS = [
 
 /** The services the dashboard switches on and off. */
 const FIXTURE_SERVICES = [
-  { type: 'call', isEnabled: false, ratePerMinute: 10, effectiveRate: 10, freeMinutes: 0 },
-  { type: 'chat', isEnabled: false, ratePerMinute: 10, effectiveRate: 10, freeMinutes: 0 },
+  { type: 'call', isEnabled: false, ratePerMinute: 10, effectiveRate: 10 },
+  { type: 'chat', isEnabled: false, ratePerMinute: 10, effectiveRate: 10 },
 ];
 
 const store = {
@@ -74,6 +76,7 @@ const store = {
   bankAccounts: [...FIXTURE_BANK_ACCOUNTS] as BankAccount[],
   transactions: [...FIXTURE_TRANSACTIONS] as BankTransaction[],
   documents: [...FIXTURE_DOCUMENTS] as UploadedDocument[],
+  gallery: [...FIXTURE_GALLERY] as GalleryPhoto[],
   serviceRates: [...FIXTURE_SERVICE_RATES] as ServiceRate[],
   reviews: [...FIXTURE_REVIEWS] as Review[],
 };
@@ -86,6 +89,7 @@ export function resetApiMock() {
   store.bankAccounts = [...FIXTURE_BANK_ACCOUNTS];
   store.transactions = [...FIXTURE_TRANSACTIONS];
   store.documents = [...FIXTURE_DOCUMENTS];
+  store.gallery = [...FIXTURE_GALLERY];
   store.serviceRates = [...FIXTURE_SERVICE_RATES];
   store.reviews = [...FIXTURE_REVIEWS];
   store.requests = FIXTURE_REQUESTS.map(r => ({ ...r }));
@@ -107,10 +111,10 @@ export const saveProfile = async (profile: AstrologerProfile) => {
   return { ...store.profile };
 };
 
-export const uploadProfilePhoto = async (file: { name?: string } | string) => {
+export const uploadProfilePhoto = async (file: { uri?: string; name?: string } | string) => {
   store.profile = {
     ...store.profile,
-    photoFileName: typeof file === 'string' ? file : file.name,
+    photoUrl: typeof file === 'string' ? file : file.uri ?? file.name,
   };
   return { ...store.profile };
 };
@@ -184,6 +188,21 @@ export const replaceDocument = async (id: string, file: { name?: string }) => {
 
 export const deleteDocument = async (id: string) => {
   store.documents = store.documents.filter(d => d.id !== id);
+};
+
+/* ------------------------------------------------------------------ gallery */
+
+export const fetchGallery = async () => store.gallery.map(photo => ({ ...photo }));
+
+export const addGalleryImage = async (file: { uri: string }) => {
+  const photo: GalleryPhoto = { id: mintId('gallery'), url: file.uri };
+  store.gallery = [...store.gallery, photo];
+  return store.gallery.map(entry => ({ ...entry }));
+};
+
+export const deleteGalleryImage = async (id: string) => {
+  store.gallery = store.gallery.filter(photo => photo.id !== id);
+  return store.gallery.map(entry => ({ ...entry }));
 };
 
 /* ------------------------------------------------------------------ support */
@@ -297,6 +316,56 @@ const settleRequest = (chatId: string) => {
 export const acceptRequest = async (chatId: string) => settleRequest(chatId);
 export const rejectRequest = async (chatId: string) => settleRequest(chatId);
 export const endConsultation = async () => ({});
+
+/**
+ * The screens under test subscribe to these, but a screen test has no
+ * business reaching a real socket — each just returns the unsubscribe
+ * no-op and never fires, same as a connection that never opens.
+ */
+export const subscribeToIncomingRequests = () => () => {};
+
+type ConsultationHandlers = {
+  onMessage?: (message: unknown) => void;
+  onTick?: (payload: { chatId: string; minutesBilled: number; minutesRemaining: number; balanceRemaining?: number }) => void;
+  onLowBalance?: (payload: {
+    chatId: string;
+    exhausted: boolean;
+    paused?: boolean;
+    minutesRemaining?: number;
+    balanceRemaining?: number;
+  }) => void;
+  onEnded?: (payload: { chatId: string; endedBy: string; reason?: string; durationSeconds: number; amountCharged: number }) => void;
+};
+
+/** Whatever the screen currently under test subscribed with — lets a test fire a live event (see fireTick/fireLowBalance below) the same way the real socket would. */
+let consultationHandlers: ConsultationHandlers | null = null;
+
+export const subscribeToConsultation = (_chatId: string, _initialSeq: number, handlers: ConsultationHandlers) => {
+  consultationHandlers = handlers;
+  return () => {
+    consultationHandlers = null;
+  };
+};
+
+/** Test-only: simulates a normal minute billing fine, which clears any standing paused state. */
+export const fireTick = (payload?: { chatId?: string; minutesBilled?: number; minutesRemaining?: number; balanceRemaining?: number }) =>
+  consultationHandlers?.onTick?.({
+    chatId: payload?.chatId ?? 'chat-1',
+    minutesBilled: payload?.minutesBilled ?? 0,
+    minutesRemaining: payload?.minutesRemaining ?? 0,
+    balanceRemaining: payload?.balanceRemaining,
+  });
+
+/** Test-only: simulates the seeker's own balance running low/pausing/resuming while the screen under test is subscribed. */
+export const fireLowBalance = (payload: {
+  chatId: string;
+  exhausted: boolean;
+  paused?: boolean;
+  minutesRemaining?: number;
+  balanceRemaining?: number;
+}) => consultationHandlers?.onLowBalance?.(payload);
+export const connectLiveUpdates = () => null;
+export const disconnectLiveUpdates = () => {};
 /** Only the missed list is asked for by a screen; everything else is empty. */
 export const fetchConsultations = async (status?: string) =>
   status === 'missed'
@@ -308,6 +377,18 @@ export const fetchConsultations = async (status?: string) =>
         createdAt: new Date().toISOString(),
       }))
     : [];
+
+/** The session's live state — the chat screen's clock ticks from `startedAt`, handed back as "now" so a fresh render always opens at (00:00 mins). */
+export const getChatState = async (chatId: string) => ({
+  chatId,
+  role: 'astrologer' as const,
+  channel: 'chat',
+  status: 'active',
+  startedAt: new Date().toISOString(),
+  ratePerMinute: 20,
+  minutesBilled: 0,
+  amountCharged: 0,
+});
 
 /** The transcript, in the shape the API answers with. */
 /** Messages sent during a test, appended to the transcript like a server. */

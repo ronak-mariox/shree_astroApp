@@ -19,8 +19,15 @@ export type AstrologerProfile = {
   /** A comma-separated list, as the design prints it. */
   skill: string;
   about: string;
-  /** Set once a new avatar has been picked. */
-  photoFileName?: string;
+  /** The astrologer's uploaded photo, as a fully-qualified URL from the server. */
+  photoUrl?: string;
+  /**
+   * Where the application has reached (`registered` … `approved`/`rejected`).
+   * Only ever present when read straight from the server via `fetchProfile`
+   * — the fixtures and `saveProfile`'s own return value don't carry it,
+   * since nothing about editing the profile can change it.
+   */
+  applicationStatus?: string;
 };
 
 /** One row of the personal-information list — a label and its value. */
@@ -71,11 +78,3 @@ export const SKILL_OPTIONS = [
   'Palmistry',
 ];
 
-/** How many thumbnails the gallery shows (Figma nodes 110:6337 – 110:6341). */
-export const PROFILE_GALLERY_COUNT = 3;
-
-/** The two galleries the edit screen manages, and how many each holds. */
-export const EDIT_GALLERIES: ReadonlyArray<{ title: string; count: number }> = [
-  { title: 'Astro Ranjan Media', count: 3 },
-  { title: 'Profile Gallery', count: 1 },
-];

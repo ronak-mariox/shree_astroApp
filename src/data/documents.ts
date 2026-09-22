@@ -38,6 +38,22 @@ export const DOCUMENT_TYPES: ReadonlyArray<string> = [
 export const DEFAULT_DOCUMENT_TYPE = DOCUMENT_TYPES[0];
 
 /**
+ * The backend's `AstrologerProfile.documents[].type` enum (models/constants.js
+ * `DOCUMENT_TYPES`) each label above maps to. Naively slugifying the label
+ * (`"Aadhar Card Front"` -> `"aadhar_card_front"`) doesn't match the backend's
+ * actual ids (`aadhaar_front`, no "card") — this is the real mapping.
+ */
+export const DOCUMENT_TYPE_IDS: Record<string, string> = {
+  'Id Proof': 'id_proof',
+  'Aadhar Card Front': 'aadhaar_front',
+  'Aadhar Card Back': 'aadhaar_back',
+  'PAN Card': 'pan_card',
+  Certificate: 'certificate',
+  Passport: 'passport',
+  Award: 'award',
+};
+
+/**
  * Figma titles the three cards "Uploaded ID Proof 1", "Uploaded PAN Proof" and
  * "Uploaded Award Proof" — the type, wrapped in "Uploaded … Proof".
  */

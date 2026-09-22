@@ -11,7 +11,25 @@
  */
 
 import { client } from './client';
+import { DUMMY_PROFILE } from './dummyData';
+import { USE_DUMMY_AUTH } from './dummyMode';
 import { clearSession, saveSession } from './session';
+
+/** The fixed code the OTP screen accepts while there is no SMS provider. */
+const DUMMY_OTP_CODE = '123456';
+
+/** The account every dummy sign-in lands on — kept in step with `dummyData.ts`. */
+function dummyAstrologer(phone?: string, email?: string): AuthAstrologer {
+  return {
+    id: 'astrologer-dummy-1',
+    name: DUMMY_PROFILE.fullName,
+    email: email ?? DUMMY_PROFILE.email,
+    phone: phone ?? DUMMY_PROFILE.primaryMobile,
+    astroCode: DUMMY_PROFILE.astroCode,
+    applicationStatus: 'approved',
+    onboardingStep: 5,
+  };
+}
 
 /** The account, as the app's header and gates read it. */
 export type AuthAstrologer = {
@@ -67,6 +85,20 @@ export function localPhoneOf(value: string): string {
  * `account_not_found`, which is the screen's cue to offer registration.
  */
 export async function requestLoginOtp(identifier: LoginIdentifier): Promise<OtpRequest> {
+  if (USE_DUMMY_AUTH) {
+    const destination =
+      identifier.channel === 'phone'
+        ? `••••••${identifier.phone.slice(-4)}`
+        : identifier.email.replace(/^(.{2}).*(@.*)$/, '$1•••$2');
+    return {
+      channel: identifier.channel,
+      destination,
+      expiresInSeconds: 300,
+      resendInSeconds: 45,
+      devCode: DUMMY_OTP_CODE,
+    };
+  }
+
   const { data } = await client.post<OtpRequest>('/auth/login/otp/request', {
     role: 'astrologer',
     ...identifier,
@@ -79,6 +111,19 @@ export async function verifyLoginOtp(
   identifier: LoginIdentifier,
   code: string,
 ): Promise<AuthSession> {
+  if (USE_DUMMY_AUTH) {
+    const session: AuthSession = {
+      accessToken: 'dummy-access-token',
+      refreshToken: 'dummy-refresh-token',
+      astrologer: dummyAstrologer(
+        identifier.channel === 'phone' ? identifier.phone : undefined,
+        identifier.channel === 'email' ? identifier.email : undefined,
+      ),
+    };
+    await saveSession(session);
+    return session;
+  }
+
   const { data } = await client.post<AuthSession>('/auth/login/otp/verify', {
     role: 'astrologer',
     ...identifier,
@@ -110,6 +155,21 @@ export type RegistrationDraft = {
  * those steps can be made against it.
  */
 export async function register(draft: RegistrationDraft): Promise<AuthSession> {
+  if (USE_DUMMY_AUTH) {
+    const session: AuthSession = {
+      accessToken: 'dummy-access-token',
+      refreshToken: 'dummy-refresh-token',
+      astrologer: {
+        ...dummyAstrologer(draft.phone, draft.email),
+        name: draft.fullName.trim() || DUMMY_PROFILE.fullName,
+        applicationStatus: 'registered',
+        onboardingStep: 0,
+      },
+    };
+    await saveSession(session);
+    return session;
+  }
+
   const form = new FormData();
 
   form.append('fullName', draft.fullName.trim());
@@ -138,10 +198,12 @@ export async function register(draft: RegistrationDraft): Promise<AuthSession> {
  * works with no connection.
  */
 export async function signOut(): Promise<void> {
-  try {
-    await client.post('/auth/logout');
-  } catch {
-    /* Nothing here is worth staying signed in for. */
+  if (!USE_DUMMY_AUTH) {
+    try {
+      await client.post('/auth/logout');
+    } catch {
+      /* Nothing here is worth staying signed in for. */
+    }
   }
   await clearSession();
 }

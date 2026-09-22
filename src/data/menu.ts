@@ -8,15 +8,7 @@ import {
   EarningsIcon,
   HelpIcon,
   MissedCallIcon,
-  ReferIcon,
-  ReviewIcon,
 } from '../components/icons/MenuIcons';
-
-/** The astrologer, as the sidebar's profile block prints them. */
-export const MENU_PROFILE = {
-  name: 'Astro Ragini',
-  phone: '+91 8178496252',
-} as const;
 
 export type MenuItem = {
   id: string;
@@ -39,8 +31,6 @@ export const MENU_ITEMS: ReadonlyArray<MenuItem> = [
     // Figma reuses the earnings mark here (node 110:13048).
     Icon: EarningsIcon,
   },
-  { id: 'my-review', label: 'My Review', Icon: ReviewIcon },
-  { id: 'refer', label: 'Refer and Earn', Icon: ReferIcon },
   { id: 'help', label: 'Help and Support', Icon: HelpIcon },
   {
     id: 'delete-account',

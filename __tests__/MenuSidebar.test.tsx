@@ -1,11 +1,14 @@
 import React from 'react';
-import { Modal } from 'react-native';
+import { Dimensions, Modal } from 'react-native';
 import ReactTestRenderer from 'react-test-renderer';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import App from '../App';
 import { MenuSidebar } from '../src/components/MenuSidebar';
-import { MENU_ITEMS, MENU_PROFILE } from '../src/data/menu';
+import { MENU_ITEMS } from '../src/data/menu';
+import { FIXTURE_PROFILE } from './helpers/fixtures';
+import { DESIGN_WIDTH } from '../src/hooks/useResponsive';
+import { AppDataProvider } from '../src/state/AppDataProvider';
 import { AstrologerWelcomeScreen } from '../src/screens/AstrologerWelcomeScreen';
 import { DashboardScreen } from '../src/screens/DashboardScreen';
 import { LoginScreen } from '../src/screens/LoginScreen';
@@ -17,6 +20,13 @@ const METRICS = {
   frame: { x: 0, y: 0, width: 390, height: 844 },
   insets: { top: 47, left: 0, right: 0, bottom: 34 },
 };
+
+// Pin the window to the design width so `useResponsive`'s `px` scales 1:1 —
+// these tests assert the drawer's designed (unscaled) pixel geometry.
+Dimensions.set({
+  window: { width: DESIGN_WIDTH, height: 874, scale: 1, fontScale: 1 },
+  screen: { width: DESIGN_WIDTH, height: 874, scale: 1, fontScale: 1 },
+});
 
 /** Concatenated visible text — the drawer draws a lot of SVG the JSON dump
  *  would otherwise drown the assertions in. */
@@ -33,11 +43,19 @@ const textOf = (tree: ReactTestRenderer.ReactTestRenderer): string => {
 
 const mounted: ReactTestRenderer.ReactTestRenderer[] = [];
 
+/**
+ * The drawer reads the signed-in astrologer's name/phone from
+ * `AppDataProvider` (blank until that first fetch resolves — see
+ * MenuSidebar.tsx), so every render needs one in context, the same as
+ * `<App/>` already provides itself.
+ */
 const render = async (element: React.ReactElement) => {
   let tree!: ReactTestRenderer.ReactTestRenderer;
   await ReactTestRenderer.act(() => {
     tree = ReactTestRenderer.create(
-      <SafeAreaProvider initialMetrics={METRICS}>{element}</SafeAreaProvider>,
+      <SafeAreaProvider initialMetrics={METRICS}>
+        <AppDataProvider>{element}</AppDataProvider>
+      </SafeAreaProvider>,
     );
   });
   mounted.push(tree);
@@ -68,8 +86,9 @@ test('the sidebar lists the profile and all ten entries', async () => {
   );
   const text = textOf(tree);
 
-  expect(text).toContain(MENU_PROFILE.name);
-  expect(text).toContain(MENU_PROFILE.phone);
+  // The real signed-in astrologer, once AppDataProvider's fetch has resolved.
+  expect(text).toContain(FIXTURE_PROFILE.fullName);
+  expect(text).toContain(FIXTURE_PROFILE.primaryMobile);
   for (const item of MENU_ITEMS) {
     expect(text).toContain(item.label);
   }

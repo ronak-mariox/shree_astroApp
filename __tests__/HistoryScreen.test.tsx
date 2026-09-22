@@ -5,11 +5,13 @@ import ReactTestRenderer from 'react-test-renderer';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import App from '../App';
+import { ChatComposer } from '../src/components/ChatComposer';
 import { HistoryCard } from '../src/components/HistoryCard';
 import { MenuSidebar } from '../src/components/MenuSidebar';
 
 import { MENU_ITEMS } from '../src/data/menu';
 import { AstrologerWelcomeScreen } from '../src/screens/AstrologerWelcomeScreen';
+import { ConsultationChatScreen } from '../src/screens/ConsultationChatScreen';
 import { DashboardScreen } from '../src/screens/DashboardScreen';
 import { HelpSupportScreen } from '../src/screens/HelpSupportScreen';
 import { HistoryScreen } from '../src/screens/HistoryScreen';
@@ -170,6 +172,37 @@ test('the sidebar opens each history and back returns to the dashboard', async (
   expect(tree.root.findByType(HistoryScreen).props.variant).toBe('call');
 });
 
+test('tapping a history card opens that past consultation as a read-only transcript', async () => {
+  const tree = await render(<App />);
+  await signIn(tree);
+
+  await act(() => {
+    tree.root.findByType(DashboardScreen).props.onSelectTab('menu');
+  });
+  const chatHistory = MENU_ITEMS.find(item => item.id === 'chat-history');
+  await act(() => {
+    tree.root.findByType(MenuSidebar).props.onSelect(chatHistory);
+  });
+
+  const card = tree.root.findAllByType(HistoryCard)[0];
+  await act(() => {
+    card.props.onPrimary();
+  });
+
+  const chatScreen = tree.root.findByType(ConsultationChatScreen);
+  expect(chatScreen.props.chatId).toBe(HISTORY_ENTRIES[0].id);
+  expect(chatScreen.props.peerName).toBe(HISTORY_ENTRIES[0].userName);
+  expect(chatScreen.props.readOnly).toBe(true);
+  // A finished consultation has nothing left to compose into.
+  expect(tree.root.findAllByType(ChatComposer)).toHaveLength(0);
+
+  // Leaving a past consultation returns to the history list it came from, not the dashboard.
+  await act(() => {
+    chatScreen.props.onLeave();
+  });
+  expect(tree.root.findByType(HistoryScreen).props.variant).toBe('chat');
+});
+
 test('an entry without a screen of its own only collapses the drawer', async () => {
   const tree = await render(<App />);
   await signIn(tree);
@@ -179,7 +212,7 @@ test('an entry without a screen of its own only collapses the drawer', async () 
     tree.root.findByType(DashboardScreen).props.onSelectTab('menu');
   });
   await act(() => {
-    sidebar().props.onSelect(MENU_ITEMS.find(item => item.id === 'refer'));
+    sidebar().props.onSelect(MENU_ITEMS.find(item => item.id === 'missed-call'));
   });
 
   expect(sidebar().props.visible).toBe(false);

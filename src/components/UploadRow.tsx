@@ -1,5 +1,5 @@
 import React, { type ReactNode } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { colors, hairline, radius, spacing, typography } from '../theme';
 import { CheckIcon } from './icons/CheckIcon';
@@ -10,31 +10,39 @@ const ACTION_SIZE = 31.999;
 const ACTION_ICON_SIZE = 14.997;
 const CHECK_SIZE = 19.999;
 
+/** `idle` — nothing filed yet. `done` — landed on the server; the row and its icon well turn green. */
+export type UploadStatus = 'idle' | 'done';
+
 type UploadRowProps = {
   title: string;
-  /** Format and size limit while pending; the outcome once uploaded. */
+  /** Format and size limit while idle; the outcome once done. */
   hint: string;
   icon: ReactNode;
-  uploaded: boolean;
+  status: UploadStatus;
+  /** While the picked file is actually uploading — swaps the action for a spinner. */
+  busy?: boolean;
   onUpload?: () => void;
 };
 
 /**
- * A dashed document row. Pending, it carries a neutral icon well and a yellow
- * upload button; uploaded, the whole row turns green and the button becomes a
- * "Done" tick (Figma nodes 105:6330 pending, 105:6482 uploaded).
+ * A dashed document row that turns green — and its icon well, a checkmark —
+ * once a file has actually landed on the server (Figma nodes 105:6330
+ * pending, 105:6482 uploaded).
  */
 export function UploadRow({
   title,
   hint,
   icon,
-  uploaded,
+  status,
+  busy = false,
   onUpload,
 }: UploadRowProps) {
+  const done = status === 'done';
+
   return (
-    <View style={[styles.row, uploaded && styles.rowUploaded]}>
-      <View style={[styles.well, uploaded && styles.wellUploaded]}>
-        {uploaded ? <CheckIcon size={CHECK_SIZE} /> : icon}
+    <View style={[styles.row, done && styles.rowUploaded]}>
+      <View style={[styles.well, done && styles.wellUploaded]}>
+        {done ? <CheckIcon size={CHECK_SIZE} /> : icon}
       </View>
 
       <View style={styles.copy}>
@@ -42,8 +50,12 @@ export function UploadRow({
         <Text style={styles.hint}>{hint}</Text>
       </View>
 
-      {uploaded ? (
+      {done ? (
         <Text style={styles.done}>Done</Text>
+      ) : busy ? (
+        <View style={styles.action}>
+          <ActivityIndicator size="small" color={colors.text.ink} />
+        </View>
       ) : (
         <Pressable
           accessibilityRole="button"

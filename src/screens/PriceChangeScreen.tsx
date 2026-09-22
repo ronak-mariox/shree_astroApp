@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   Image,
   Pressable,
@@ -16,6 +16,7 @@ import {
 import { PriceChangeSheet } from '../components/PriceChangeSheet';
 import { ProfileHeader } from '../components/ProfileHeader';
 import { CHANGE_REQUEST_INTRO, rateRowsOf } from '../data/priceChange';
+import { useResponsive } from '../hooks/useResponsive';
 import { useAppData } from '../state/AppDataProvider';
 import { colors, radius, spacing, typography } from '../theme';
 
@@ -46,6 +47,11 @@ export function PriceChangeScreen({ onBack }: PriceChangeScreenProps) {
   const setOpenId = setChosenId;
   /** Which service the sheet is repricing, if it is up. */
   const [repricing, setRepricing] = useState<string | null>(null);
+  const { px, contentWidth, isTablet } = useResponsive();
+  const styles = useMemo(
+    () => createStyles(px, contentWidth, isTablet),
+    [px, contentWidth, isTablet],
+  );
 
   return (
     <View style={styles.screen}>
@@ -159,111 +165,116 @@ export function PriceChangeScreen({ onBack }: PriceChangeScreenProps) {
   );
 }
 
-const styles = StyleSheet.create({
-  screen: {
-    flex: 1,
-    backgroundColor: colors.canvasSoft,
-  },
-  content: {
-    paddingHorizontal: 13,
-    paddingTop: spacing.lg,
-    paddingBottom: spacing.lg,
-    gap: 15,
-  },
-  intro: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingBottom: 10,
-  },
-  introText: {
-    flex: 1,
-    paddingRight: spacing.sm,
-  },
-  introTitle: {
-    ...typography.profileSectionStrong,
-    color: colors.text.slateMuted,
-  },
-  introBody: {
-    ...typography.historyLabel,
-    lineHeight: 16,
-    color: colors.text.slateMuted,
-    paddingTop: 4,
-  },
-  illustration: {
-    width: ILLUSTRATION_WIDTH,
-    height: ILLUSTRATION_HEIGHT,
-  },
-  panel: {
-    borderRadius: radius.input,
-    overflow: 'hidden',
-  },
-  panelOpen: {
-    backgroundColor: colors.surface,
-  },
-  panelHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    height: HEADER_HEIGHT,
-    paddingHorizontal: 16.18,
-    borderRadius: radius.input,
-    backgroundColor: colors.brandYellow,
-  },
-  panelHeaderOpen: {
-    borderBottomLeftRadius: 0,
-    borderBottomRightRadius: 0,
-  },
-  // Figma warms the emergency row and reddens its label (node 110:12034).
-  panelHeaderEmergency: {
-    backgroundColor: '#FFDB5C',
-  },
-  panelTitle: {
-    ...typography.serviceTitle,
-    color: colors.text.ink,
-  },
-  panelTitleEmergency: {
-    color: colors.emergency,
-  },
-  pressed: {
-    opacity: 0.6,
-  },
-  panelBody: {
-    paddingHorizontal: 16.18,
-    paddingTop: 12,
-    paddingBottom: 14,
-    gap: 10.6,
-  },
-  rateRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: spacing.md,
-  },
-  rateLabel: {
-    ...typography.rateLabel,
-    color: 'rgba(0, 0, 0, 0.64)',
-  },
-  rateValue: {
-    ...typography.rateValue,
-    color: 'rgba(0, 0, 0, 0.64)',
-    textAlign: 'right',
-  },
-  rateStatus: {
-    color: colors.status.danger,
-  },
-  requestButton: {
-    height: REQUEST_BUTTON_HEIGHT,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 6,
-    borderRadius: radius.input,
-    borderWidth: 1,
-    borderColor: colors.text.ink,
-  },
-  requestLabel: {
-    ...typography.historyAction,
-    color: colors.text.ink,
-    textAlign: 'center',
-    textTransform: 'capitalize',
-  },
-});
+function createStyles(px: (value: number) => number, contentWidth: number, isTablet: boolean) {
+  return StyleSheet.create({
+    screen: {
+      flex: 1,
+      backgroundColor: colors.canvasSoft,
+    },
+    content: {
+      alignSelf: 'center',
+      width: '100%',
+      maxWidth: isTablet ? contentWidth : undefined,
+      paddingHorizontal: px(13),
+      paddingTop: spacing.lg,
+      paddingBottom: spacing.lg,
+      gap: 15,
+    },
+    intro: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingBottom: 10,
+    },
+    introText: {
+      flex: 1,
+      paddingRight: spacing.sm,
+    },
+    introTitle: {
+      ...typography.profileSectionStrong,
+      color: colors.text.slateMuted,
+    },
+    introBody: {
+      ...typography.historyLabel,
+      lineHeight: 16,
+      color: colors.text.slateMuted,
+      paddingTop: 4,
+    },
+    illustration: {
+      width: px(ILLUSTRATION_WIDTH),
+      height: px(ILLUSTRATION_HEIGHT),
+    },
+    panel: {
+      borderRadius: radius.input,
+      overflow: 'hidden',
+    },
+    panelOpen: {
+      backgroundColor: colors.surface,
+    },
+    panelHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      height: px(HEADER_HEIGHT),
+      paddingHorizontal: px(16.18),
+      borderRadius: radius.input,
+      backgroundColor: colors.brandYellow,
+    },
+    panelHeaderOpen: {
+      borderBottomLeftRadius: 0,
+      borderBottomRightRadius: 0,
+    },
+    // Figma warms the emergency row and reddens its label (node 110:12034).
+    panelHeaderEmergency: {
+      backgroundColor: '#FFDB5C',
+    },
+    panelTitle: {
+      ...typography.serviceTitle,
+      color: colors.text.ink,
+    },
+    panelTitleEmergency: {
+      color: colors.emergency,
+    },
+    pressed: {
+      opacity: 0.6,
+    },
+    panelBody: {
+      paddingHorizontal: px(16.18),
+      paddingTop: px(12),
+      paddingBottom: px(14),
+      gap: px(10.6),
+    },
+    rateRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: spacing.md,
+    },
+    rateLabel: {
+      ...typography.rateLabel,
+      color: 'rgba(0, 0, 0, 0.64)',
+    },
+    rateValue: {
+      ...typography.rateValue,
+      color: 'rgba(0, 0, 0, 0.64)',
+      textAlign: 'right',
+    },
+    rateStatus: {
+      color: colors.status.danger,
+    },
+    requestButton: {
+      height: px(REQUEST_BUTTON_HEIGHT),
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginTop: 6,
+      borderRadius: radius.input,
+      borderWidth: 1,
+      borderColor: colors.text.ink,
+    },
+    requestLabel: {
+      ...typography.historyAction,
+      color: colors.text.ink,
+      textAlign: 'center',
+      textTransform: 'capitalize',
+    },
+  });
+}

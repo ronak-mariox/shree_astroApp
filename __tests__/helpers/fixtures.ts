@@ -7,6 +7,7 @@
 
 import type { BankAccount } from '../../src/data/bank';
 import type { UploadedDocument } from '../../src/data/documents';
+import type { GalleryPhoto } from '../../src/data/gallery';
 import type { ServiceRate } from '../../src/data/priceChange';
 import type { AstrologerProfile } from '../../src/data/profile';
 import type { Review } from '../../src/data/reviews';
@@ -37,6 +38,12 @@ export const FIXTURE_PROFILE: AstrologerProfile = {
   about:
     "Lorem Ipsum is simply dummy text of the printing and typesetting industry. Lorem Ipsum has been the industry's standard dummy text ever since the 1500s, when an unknown printer took a galley of type and scrambled it to make a type specimen book.",
 };
+
+/** The astrologer's own portfolio photos — separate from their profile photo. */
+export const FIXTURE_GALLERY: ReadonlyArray<GalleryPhoto> = [
+  { id: 'portfolio-1', url: 'https://example.com/gallery/one.jpg' },
+  { id: 'portfolio-2', url: 'https://example.com/gallery/two.jpg' },
+];
 
 /** The account Figma prints on the screen (nodes 110:6616 – 110:6638). */
 export const FIXTURE_BANK_ACCOUNTS: ReadonlyArray<BankAccount> = [

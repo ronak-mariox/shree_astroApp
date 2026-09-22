@@ -9,8 +9,9 @@ import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { AppDataProvider } from './src/state/AppDataProvider';
-import { signOut as endSession } from './src/services/auth';
-import { onSessionChange, restoreSession } from './src/services/session';
+import { signOut as endSession, type AuthAstrologer } from './src/services/auth';
+import { disconnectLiveUpdates } from './src/services/api';
+import { getSession, onSessionChange, restoreSession } from './src/services/session';
 import { colors } from './src/theme';
 
 import { type TabKey } from './src/components/BottomNav';
@@ -29,13 +30,12 @@ import { EditProfileScreen } from './src/screens/EditProfileScreen';
 import { HelpSupportScreen } from './src/screens/HelpSupportScreen';
 import { HistoryScreen } from './src/screens/HistoryScreen';
 import { MyProfileScreen } from './src/screens/MyProfileScreen';
-import { MyReviewsScreen } from './src/screens/MyReviewsScreen';
 import { PriceChangeScreen } from './src/screens/PriceChangeScreen';
 import { LoginScreen } from './src/screens/LoginScreen';
 import { NotificationsScreen } from './src/screens/NotificationsScreen';
 import { OnboardingScreen } from './src/screens/OnboardingScreen';
 import { OtpVerificationScreen } from './src/screens/OtpVerificationScreen';
-import { PersonalInfoScreen } from './src/screens/PersonalInfoScreen';
+import { PersonalInfoScreen, type PersonalInfo } from './src/screens/PersonalInfoScreen';
 import { ProfessionalDetailsScreen } from './src/screens/ProfessionalDetailsScreen';
 import { WalletScreen } from './src/screens/WalletScreen';
 import { WelcomeScreen } from './src/screens/WelcomeScreen';
@@ -70,7 +70,6 @@ type Route =
   | 'callHistory'
   /** Sidebar entries with a screen of their own. */
   | 'priceChange'
-  | 'reviews'
   | 'help'
   /** "View Profile" in the header dropdown, and the Edit button on it. */
   | 'profile'
@@ -88,9 +87,21 @@ const MENU_ROUTES: Record<string, Route | undefined> = {
   dashboard: 'dashboard',
   'call-history': 'callHistory',
   'chat-history': 'chatHistory',
+  'missed-call': 'dashboard',
+  earnings: 'dashboard',
   'price-change': 'priceChange',
-  'my-review': 'reviews',
   help: 'help',
+};
+
+/**
+ * Sidebar entries that land back on the dashboard route also need a tab
+ * switch — "Dashboard" always resets to Home, while "Missed Call" and
+ * "Earnings" jump straight to the tab that shows that data.
+ */
+const MENU_TABS: Record<string, TabKey | undefined> = {
+  dashboard: 'home',
+  'missed-call': 'consult',
+  earnings: 'wallet',
 };
 
 /** Groups a mobile number the way the OTP screen prints it: 98765 43210. */
@@ -103,6 +114,8 @@ function App() {
   const [devCode, setDevCode] = useState<string | undefined>(undefined);
   /** The number login collected, carried into the OTP screen. */
   const [mobile, setMobile] = useState('');
+  /** Step 1's answers, held until step 2 has enough to actually register. */
+  const [personalInfo, setPersonalInfo] = useState<PersonalInfo>();
   /** Which tab of the signed-in shell is showing. */
   const [tab, setTab] = useState<TabKey>('home');
   /**
@@ -111,6 +124,15 @@ function App() {
    * just accepted, so the accepted request's name is carried through.
    */
   const [seeker, setSeeker] = useState<string | undefined>(undefined);
+  /** The chat the accepted request opened — `ConsultationRequest.id` is already the chatId (see utils/requests.ts). */
+  const [chatId, setChatId] = useState<string | undefined>(undefined);
+  /**
+   * True when `chatId` was opened from History rather than a live accept —
+   * a past, already-ended consultation, read-only, and returning from it
+   * should land back on the history list it came from, not the dashboard.
+   */
+  const [pastConsultation, setPastConsultation] = useState(false);
+  const [historyOrigin, setHistoryOrigin] = useState<'chatHistory' | 'callHistory'>('chatHistory');
   /** The amount carried through the withdrawal flow, in plain digits. */
   const [withdrawal, setWithdrawal] = useState(WITHDRAW_DEFAULT);
 
@@ -129,7 +151,11 @@ function App() {
 
     restoreSession().then(session => {
       if (live) {
-        setRoute(session ? 'dashboard' : 'welcome');
+        if (session) {
+          routeAfterAuth(session.astrologer);
+        } else {
+          setRoute('welcome');
+        }
       }
     });
 
@@ -137,6 +163,18 @@ function App() {
       live = false;
     };
   }, []);
+
+  /**
+   * Where a signed-in astrologer lands: the live dashboard once approved, or
+   * the same "under review" screen the wizard ends on otherwise — reused
+   * rather than a fresh screen, since the copy already reads fine on a
+   * repeat visit. Login only ever succeeds for an account that could still
+   * reach `'approved'` (a rejected/suspended one is refused at the OTP step
+   * itself, on the server), so those are the only two outcomes here.
+   */
+  const routeAfterAuth = (astrologer: AuthAstrologer) => {
+    setRoute(astrologer.applicationStatus === 'approved' ? 'dashboard' : 'applicationSubmitted');
+  };
 
   /**
    * A session can also end without anyone pressing anything: a refresh token
@@ -147,6 +185,8 @@ function App() {
     () =>
       onSessionChange(session => {
         if (!session) {
+          /** A signed-out session must never hold a live socket, however it ends. */
+          disconnectLiveUpdates();
           setRoute(current => (current === 'restoring' ? current : 'accountGate'));
         }
       }),
@@ -155,6 +195,7 @@ function App() {
 
   /** Clears the keystore first, so "signed out" is true before it is drawn. */
   const signOut = async () => {
+    disconnectLiveUpdates();
     await endSession();
     setTab('home');
     setRoute('accountGate');
@@ -216,7 +257,7 @@ function App() {
           mobile={formatMobile(mobile)}
           phone={mobile}
           devCode={devCode}
-          onVerified={() => setRoute('dashboard')}
+          onVerified={astrologer => (astrologer ? routeAfterAuth(astrologer) : setRoute('dashboard'))}
         />
       )}
 
@@ -226,8 +267,12 @@ function App() {
           onSelectTab={selectTab}
           onAcceptRequest={request => {
             setSeeker(request.name);
+            setChatId(request.id);
+            setPastConsultation(false);
             setRoute('consultation');
           }}
+          onEditLifeAspects={() => setRoute('profileEdit')}
+          onEditSkills={() => setRoute('profileEdit')}
           onViewProfile={() => setRoute('profile')}
           onBankDetails={() => setRoute('bankAccounts')}
           onDocuments={() => setRoute('documents')}
@@ -258,11 +303,13 @@ function App() {
         <BankAccountsScreen onBack={() => setRoute('dashboard')} />
       )}
 
-      {/* Leaving the consultation drops back to the dashboard. */}
+      {/* Leaving a live consultation drops back to the dashboard; leaving a past one (opened from History) returns to the history list it came from. */}
       {route === 'consultation' && (
         <ConsultationChatScreen
+          chatId={chatId}
           peerName={seeker}
-          onLeave={() => setRoute('dashboard')}
+          readOnly={pastConsultation}
+          onLeave={() => setRoute(pastConsultation ? historyOrigin : 'dashboard')}
         />
       )}
 
@@ -272,6 +319,8 @@ function App() {
           onSelectTab={selectTab}
           onAcceptRequest={request => {
             setSeeker(request.name);
+            setChatId(request.id);
+            setPastConsultation(false);
             setRoute('consultation');
           }}
         />
@@ -311,15 +360,18 @@ function App() {
           onBack={() => setRoute('accountGate')}
           onContinue={info => {
             setMobile(info.mobile);
+            setPersonalInfo(info);
             setRoute('professionalDetails');
           }}
         />
       )}
 
-      {route === 'professionalDetails' && (
+      {/* Registering the account happens inside this step — see its own doc comment. */}
+      {route === 'professionalDetails' && personalInfo && (
         <ProfessionalDetailsScreen
+          personalInfo={personalInfo}
           onBack={() => setRoute('personalInfo')}
-          onContinue={() => setRoute('documentUpload')}
+          onRegistered={() => setRoute('documentUpload')}
         />
       )}
 
@@ -330,31 +382,61 @@ function App() {
         />
       )}
 
+      {/* Filing the bank account and submitting the application both happen inside this step. */}
       {route === 'bankDetails' && (
         <BankDetailsScreen
+          holderNameDefault={personalInfo?.fullName}
           onBack={() => setRoute('documentUpload')}
-          onSubmit={() => setRoute('applicationSubmitted')}
+          onSubmit={() => {
+            setPersonalInfo(undefined);
+            setRoute('applicationSubmitted');
+          }}
         />
       )}
 
       {route === 'applicationSubmitted' && (
-        <ApplicationSubmittedScreen onBackToHome={() => setRoute('dashboard')} />
+        <ApplicationSubmittedScreen
+          onGetStarted={() => {
+            const session = getSession();
+            if (session) {
+              routeAfterAuth(session.astrologer);
+            } else {
+              setRoute('accountGate');
+            }
+          }}
+        />
       )}
 
       {route === 'chatHistory' && (
-        <HistoryScreen variant="chat" onBack={() => setRoute('dashboard')} />
+        <HistoryScreen
+          variant="chat"
+          onBack={() => setRoute('dashboard')}
+          onSelect={(id, name) => {
+            setSeeker(name);
+            setChatId(id);
+            setPastConsultation(true);
+            setHistoryOrigin('chatHistory');
+            setRoute('consultation');
+          }}
+        />
       )}
 
       {route === 'callHistory' && (
-        <HistoryScreen variant="call" onBack={() => setRoute('dashboard')} />
+        <HistoryScreen
+          variant="call"
+          onBack={() => setRoute('dashboard')}
+          onSelect={(id, name) => {
+            setSeeker(name);
+            setChatId(id);
+            setPastConsultation(true);
+            setHistoryOrigin('callHistory');
+            setRoute('consultation');
+          }}
+        />
       )}
 
       {route === 'priceChange' && (
         <PriceChangeScreen onBack={() => setRoute('dashboard')} />
-      )}
-
-      {route === 'reviews' && (
-        <MyReviewsScreen onBack={() => setRoute('dashboard')} />
       )}
 
       {route === 'help' && (
@@ -371,6 +453,10 @@ function App() {
           const destination = MENU_ROUTES[item.id];
           if (destination) {
             setRoute(destination);
+          }
+          const destinationTab = MENU_TABS[item.id];
+          if (destinationTab) {
+            setTab(destinationTab);
           }
         }}
       />
