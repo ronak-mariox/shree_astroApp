@@ -5,12 +5,12 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Alert, Linking, StyleSheet, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { AppDataProvider } from './src/state/AppDataProvider';
 import { signOut as endSession, type AuthAstrologer } from './src/services/auth';
-import { disconnectLiveUpdates } from './src/services/api';
+import { disconnectLiveUpdates, fetchSupportContact } from './src/services/api';
 import { getSession, onSessionChange, restoreSession } from './src/services/session';
 import { colors } from './src/theme';
 
@@ -210,6 +210,37 @@ function App() {
     }
   };
 
+  /** Social sign-in isn't set up for astrologers yet — say so rather than leave the buttons dead. */
+  const socialComingSoon = (provider: 'Google' | 'Apple') =>
+    Alert.alert(`${provider} sign-in`, `${provider} sign-in is coming soon. Please continue with your mobile number.`);
+
+  /**
+   * "Delete Account" — there is no self-serve deletion on the API, and it
+   * can't be undone (earnings, payouts and records are involved), so this
+   * confirms and then opens a request to support rather than doing nothing.
+   */
+  const requestAccountDeletion = () =>
+    Alert.alert(
+      'Delete account?',
+      'This permanently removes your astrologer profile. Our team will verify the request and settle any pending earnings first.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Request deletion',
+          style: 'destructive',
+          onPress: async () => {
+            const { email } = await fetchSupportContact();
+            const subject = encodeURIComponent('Delete my astrologer account');
+            try {
+              await Linking.openURL(`mailto:${email}?subject=${subject}`);
+            } catch {
+              Alert.alert('Request deletion', `Email ${email} from your registered address to delete your account.`);
+            }
+          },
+        },
+      ],
+    );
+
   return (
     <SafeAreaProvider>
       <AppDataProvider>
@@ -243,6 +274,8 @@ function App() {
 
       {route === 'login' && (
         <LoginScreen
+          onGoogle={() => socialComingSoon('Google')}
+          onApple={() => socialComingSoon('Apple')}
           onSendOtp={(digits, code) => {
             setMobile(digits);
             setDevCode(code);
@@ -271,6 +304,9 @@ function App() {
             setPastConsultation(false);
             setRoute('consultation');
           }}
+          onViewEarnings={() => setTab('wallet')}
+          onWithdraw={() => setRoute('withdraw')}
+          onViewPerformance={() => setRoute('chatHistory')}
           onEditLifeAspects={() => setRoute('profileEdit')}
           onEditSkills={() => setRoute('profileEdit')}
           onViewProfile={() => setRoute('profile')}
@@ -351,7 +387,10 @@ function App() {
       {route === 'withdrawDone' && (
         <WithdrawSuccessScreen
           amount={withdrawal}
-          onBackToWallet={() => setRoute('dashboard')}
+          onBackToWallet={() => {
+            setTab('wallet');
+            setRoute('dashboard');
+          }}
         />
       )}
 
@@ -448,8 +487,16 @@ function App() {
       <MenuSidebar
         visible={menuOpen}
         onCollapse={() => setMenuOpen(false)}
+        onEditProfile={() => {
+          setMenuOpen(false);
+          setRoute('profileEdit');
+        }}
         onSelect={item => {
           setMenuOpen(false);
+          if (item.id === 'delete-account') {
+            requestAccountDeletion();
+            return;
+          }
           const destination = MENU_ROUTES[item.id];
           if (destination) {
             setRoute(destination);

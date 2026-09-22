@@ -19,6 +19,8 @@ type StatCardProps = {
   footnote: string;
   footnoteColor: string;
   onPress?: () => void;
+  /** What a screen reader announces for the whole card. */
+  accessibilityLabel?: string;
 };
 
 /**
@@ -36,6 +38,7 @@ export function StatCard({
   footnote,
   footnoteColor,
   onPress,
+  accessibilityLabel,
 }: StatCardProps) {
   const { px } = useResponsive();
   const styles = useMemo(() => createStyles(px), [px]);
@@ -43,6 +46,9 @@ export function StatCard({
   return (
     <Pressable
       accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel}
+      accessibilityState={{ disabled: !onPress }}
+      disabled={!onPress}
       onPress={onPress}
       style={({ pressed }) => [styles.card, pressed && styles.pressed]}
     >

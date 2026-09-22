@@ -13,7 +13,8 @@ import { ConsultationChatScreen } from '../src/screens/ConsultationChatScreen';
 import * as api from '../src/services/api';
 import { clockOffsetMs, elapsedSeconds, formatClock, secondsUntil } from '../src/utils/sessionClock';
 import { requestsFromApi } from '../src/utils/requests';
-import { firePerMinuteStarted } from './helpers/apiMock';
+import { firePackageEnded, firePackageExtended, firePerMinuteStarted } from './helpers/apiMock';
+import { ChatComposer } from '../src/components/ChatComposer';
 
 const METRICS = {
   frame: { x: 0, y: 0, width: 375, height: 812 },
@@ -98,15 +99,41 @@ describe('astrologer header', () => {
     const tree = await render(<ConsultationChatScreen chatId="chat-1" peerName="Arjun" />);
     expect(textOf(tree)).toContain('(02:30 left)');
 
-    // The package runs out → both headers count the session up.
+    // The package runs out → paused on this side too, while the seeker chooses.
+    await ReactTestRenderer.act(() => {
+      firePackageEnded({ chatId: 'chat-1', pausedSince: serverIso(0), serverTime: serverIso(0) });
+    });
+    expect(textOf(tree)).toContain('(Paused)');
+    expect(textOf(tree)).toContain('chat paused while the seeker chooses how to continue');
+    expect(tree.root.findByType(ChatComposer).props.disabled).toBe(true);
+
+    // They choose per-minute → both headers count the session up again.
     await ReactTestRenderer.act(() => {
       firePerMinuteStarted({ chatId: 'chat-1', perMinuteStartedAt: serverIso(0), serverTime: serverIso(0), ratePerMinute: 20 });
     });
+    expect(tree.root.findByType(ChatComposer).props.disabled).toBe(false);
     await ReactTestRenderer.act(async () => {
       await new Promise<void>(resolve => setTimeout(() => resolve(), 1100));
     });
-    expect(textOf(tree)).toMatch(/\(02:0[67] mins\)/);
+    expect(textOf(tree)).toMatch(/\(02:0[5-7] mins\)/);
     expect(textOf(tree)).not.toContain('left)');
+  });
+});
+
+describe('astrologer side of a package pause', () => {
+  test('the seeker taking another package resumes this side with the same fresh countdown', async () => {
+    jest.spyOn(api, 'getChatState').mockImplementation(
+      async () => state({ billingMode: 'package', package: { phase: 'awaiting_choice', endsAt: serverIso(-5_000), awaitingChoiceSince: serverIso(-5_000) } }) as never,
+    );
+    const tree = await render(<ConsultationChatScreen chatId="chat-1" peerName="Arjun" />);
+    expect(textOf(tree)).toContain('(Paused)');
+    expect(tree.root.findByType(ChatComposer).props.disabled).toBe(true);
+
+    await ReactTestRenderer.act(() => {
+      firePackageExtended({ chatId: 'chat-1', packageMinutes: 3, endsAt: serverIso(180_000), serverTime: serverIso(0) });
+    });
+    expect(textOf(tree)).toContain('(03:00 left)');
+    expect(tree.root.findByType(ChatComposer).props.disabled).toBe(false);
   });
 });
 

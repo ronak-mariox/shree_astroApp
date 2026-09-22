@@ -52,8 +52,10 @@ export const CHAT_EVENTS = {
   REJECTED: 'chat:rejected',
   MISSED: 'chat:missed',
   CANCELLED: 'chat:cancelled',
-  /** Package bookings: ~30s of package time left; then the package ran out and the session is billed per minute. */
+  /** Package bookings: ~30s left; ran out (paused on the seeker's choice); continued with another package; continued per-minute. */
   PACKAGE_WARNING: 'chat:package_warning',
+  PACKAGE_ENDED: 'chat:package_ended',
+  PACKAGE_EXTENDED: 'chat:package_extended',
   PER_MINUTE_STARTED: 'chat:per_minute_started',
 } as const;
 
@@ -222,6 +224,8 @@ type LowBalancePayload = {
 type EndedPayload = { chatId: string; endedBy: string; reason?: string; durationSeconds: number; amountCharged: number };
 type PackageWarningPayload = { chatId: string; endsAt: string; serverTime: string; secondsLeft: number; ratePerMinute: number };
 type PerMinuteStartedPayload = { chatId: string; perMinuteStartedAt: string; serverTime: string; ratePerMinute: number };
+type PackageEndedPayload = { chatId: string; pausedSince: string; serverTime: string };
+type PackageExtendedPayload = { chatId: string; packageMinutes: number; endsAt: string; serverTime: string };
 
 /**
  * Everything a live consultation screen needs while it is open: the
@@ -256,7 +260,11 @@ export function subscribeToChat(
     }) => void;
     /** Package bookings: ~30s of package time left. */
     onPackageWarning?: (payload: PackageWarningPayload) => void;
-    /** Package bookings: the package ran out; the session is now billed per minute. */
+    /** Package bookings: the package ran out — paused until the seeker chooses how to continue. */
+    onPackageEnded?: (payload: PackageEndedPayload) => void;
+    /** Package bookings: the seeker continued with another package. */
+    onPackageExtended?: (payload: PackageExtendedPayload) => void;
+    /** Package bookings: the seeker continued per-minute. */
     onPerMinuteStarted?: (payload: PerMinuteStartedPayload) => void;
   },
 ): () => void {
@@ -313,6 +321,12 @@ export function subscribeToChat(
   const onPerMinuteStarted = (payload: PerMinuteStartedPayload) => {
     if (payload?.chatId === chatId) handlers.onPerMinuteStarted?.(payload);
   };
+  const onPackageEnded = (payload: PackageEndedPayload) => {
+    if (payload?.chatId === chatId) handlers.onPackageEnded?.(payload);
+  };
+  const onPackageExtended = (payload: PackageExtendedPayload) => {
+    if (payload?.chatId === chatId) handlers.onPackageExtended?.(payload);
+  };
 
   active.on(CHAT_EVENTS.NEW, onMessage);
   active.on(CHAT_EVENTS.TICK, onTick);
@@ -320,6 +334,8 @@ export function subscribeToChat(
   active.on(CHAT_EVENTS.ENDED, onEnded);
   active.on(CHAT_EVENTS.PACKAGE_WARNING, onPackageWarning);
   active.on(CHAT_EVENTS.PER_MINUTE_STARTED, onPerMinuteStarted);
+  active.on(CHAT_EVENTS.PACKAGE_ENDED, onPackageEnded);
+  active.on(CHAT_EVENTS.PACKAGE_EXTENDED, onPackageExtended);
 
   return () => {
     active.off('connect', rejoin);
@@ -329,6 +345,8 @@ export function subscribeToChat(
     active.off(CHAT_EVENTS.ENDED, onEnded);
     active.off(CHAT_EVENTS.PACKAGE_WARNING, onPackageWarning);
     active.off(CHAT_EVENTS.PER_MINUTE_STARTED, onPerMinuteStarted);
+    active.off(CHAT_EVENTS.PACKAGE_ENDED, onPackageEnded);
+    active.off(CHAT_EVENTS.PACKAGE_EXTENDED, onPackageExtended);
     leaveChatRoom(chatId);
   };
 }

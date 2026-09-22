@@ -55,8 +55,10 @@ export function formatClock(totalSeconds: number): string {
 
 /** Where a package booking stands — mirrors the backend's packageViewFor. Undefined for a per-minute session. */
 export type PackageView = {
-  phase: 'package' | 'per_minute';
+  /** 'awaiting_choice': the package ran out and the session is paused until the seeker picks per-minute or another package. */
+  phase: 'package' | 'awaiting_choice' | 'per_minute';
   endsAt?: string;
+  awaitingChoiceSince?: string;
   warningSeconds?: number;
   perMinuteStartedAt?: string;
   requestedMinutes?: number;

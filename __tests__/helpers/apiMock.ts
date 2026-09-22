@@ -316,6 +316,8 @@ const settleRequest = (chatId: string) => {
 export const acceptRequest = async (chatId: string) => settleRequest(chatId);
 export const rejectRequest = async (chatId: string) => settleRequest(chatId);
 export const endConsultation = async () => ({});
+/** The admin's support contact (public GET /settings). */
+export const fetchSupportContact = async () => ({ email: 'support@shreeastro.com' });
 
 /**
  * The screens under test subscribe to these, but a screen test has no
@@ -336,6 +338,8 @@ type ConsultationHandlers = {
   }) => void;
   onEnded?: (payload: { chatId: string; endedBy: string; reason?: string; durationSeconds: number; amountCharged: number }) => void;
   onPackageWarning?: (payload: Record<string, unknown>) => void;
+  onPackageEnded?: (payload: Record<string, unknown>) => void;
+  onPackageExtended?: (payload: Record<string, unknown>) => void;
   onPerMinuteStarted?: (payload: Record<string, unknown>) => void;
 };
 
@@ -366,7 +370,10 @@ export const fireLowBalance = (payload: {
   minutesRemaining?: number;
   balanceRemaining?: number;
 }) => consultationHandlers?.onLowBalance?.(payload);
-/** Test-only: package bookings — the package ran out and the session is now per-minute. */
+/** Test-only: package bookings — ran out (paused), continued with another package. */
+export const firePackageEnded = (payload: Record<string, unknown>) => consultationHandlers?.onPackageEnded?.(payload);
+export const firePackageExtended = (payload: Record<string, unknown>) => consultationHandlers?.onPackageExtended?.(payload);
+/** Test-only: package bookings — the seeker continued per-minute. */
 export const firePerMinuteStarted = (payload: Record<string, unknown>) => consultationHandlers?.onPerMinuteStarted?.(payload);
 export const connectLiveUpdates = () => null;
 export const disconnectLiveUpdates = () => {};
