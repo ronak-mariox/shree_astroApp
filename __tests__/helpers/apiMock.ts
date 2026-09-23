@@ -361,6 +361,32 @@ export const SEEKER_KUNDLI = {
 };
 export const fetchSeekerKundli = jest.fn(async (_chatId: string) => SEEKER_KUNDLI as unknown);
 
+/**
+ * POST /chats/:chatId/kundli — the astrologer generating it from inside the
+ * consultation. Answers with a chart for the details it was given, marked
+ * `generated`, the way the real endpoint does.
+ */
+export const generateSeekerKundli = jest.fn(
+  async (
+    _chatId: string,
+    details: { fullName: string; gender?: string; dateOfBirth: string; timeOfBirth: string; place: string },
+  ) => {
+    const [day, month, year] = details.dateOfBirth.split('/');
+    return {
+      ...SEEKER_KUNDLI,
+      profileId: 'bp-generated',
+      match: 'generated' as const,
+      birthDetails: {
+        fullName: details.fullName,
+        gender: details.gender,
+        dateOfBirth: `${year}-${month}-${day}T00:00:00.000Z`,
+        timeOfBirth: details.timeOfBirth,
+        place: details.place,
+      },
+    } as unknown;
+  },
+);
+
 /** The admin's support contact (public GET /settings). */
 export const fetchSupportContact = async () => ({ email: 'support@shreeastro.com' });
 
@@ -382,6 +408,9 @@ type ConsultationHandlers = {
     balanceRemaining?: number;
   }) => void;
   onEnded?: (payload: { chatId: string; endedBy: string; reason?: string; durationSeconds: number; amountCharged: number }) => void;
+  onUserLeft?: (payload: { chatId: string; endsInSeconds: number; serverTime: string }) => void;
+  onUserReturned?: (payload: { chatId: string; serverTime: string }) => void;
+  onRejoinState?: (payload: Record<string, unknown>) => void;
   onPackageWarning?: (payload: Record<string, unknown>) => void;
   onPackageEnded?: (payload: Record<string, unknown>) => void;
   onPackageExtended?: (payload: Record<string, unknown>) => void;
@@ -415,6 +444,22 @@ export const fireLowBalance = (payload: {
   minutesRemaining?: number;
   balanceRemaining?: number;
 }) => consultationHandlers?.onLowBalance?.(payload);
+/** Test-only: the seeker's own app going away mid-consultation, and coming back. */
+export const fireUserLeft = (payload?: { chatId?: string; endsInSeconds?: number; serverTime?: string }) =>
+  consultationHandlers?.onUserLeft?.({
+    chatId: payload?.chatId ?? 'chat-1',
+    endsInSeconds: payload?.endsInSeconds ?? 45,
+    serverTime: payload?.serverTime ?? new Date().toISOString(),
+  });
+export const fireUserReturned = (payload?: { chatId?: string; serverTime?: string }) =>
+  consultationHandlers?.onUserReturned?.({
+    chatId: payload?.chatId ?? 'chat-1',
+    serverTime: payload?.serverTime ?? new Date().toISOString(),
+  });
+/** Test-only: what a (re)join reports about the session's true current state. */
+export const fireRejoinState = (payload: Record<string, unknown>) =>
+  consultationHandlers?.onRejoinState?.({ status: 'active', paused: false, pausedSince: null, ...payload });
+
 /** Test-only: package bookings — ran out (paused), continued with another package. */
 export const firePackageEnded = (payload: Record<string, unknown>) => consultationHandlers?.onPackageEnded?.(payload);
 export const firePackageExtended = (payload: Record<string, unknown>) => consultationHandlers?.onPackageExtended?.(payload);

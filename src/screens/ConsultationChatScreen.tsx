@@ -1,5 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  Alert,
+  BackHandler,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -19,9 +21,12 @@ import { useApi } from '../hooks/useApi';
 import { useResponsive } from '../hooks/useResponsive';
 import * as api from '../services/api';
 import {
+  canGenerateKundli,
   draftFromBirthDetails,
-  draftMatchesBirthDetails,
+  kundliMatchNote,
+  toKundliRequest,
   type KundliDraft,
+  type SeekerKundli,
 } from '../data/kundli';
 import {
   clockOffsetMs,
@@ -131,6 +136,13 @@ export function ConsultationChatScreen({
    * and once it runs out it counts the session up like any other.
    */
   const [pkg, setPkg] = useState<PackageView>();
+  /**
+   * The seeker's app is away, and when the server will end the session over it.
+   * Held as the moment it runs out (on the server's clock) rather than a
+   * counter, so the banner's countdown survives re-renders and a clock that is
+   * a few seconds off.
+   */
+  const [userAwayEndsAt, setUserAwayEndsAt] = useState<string | null>(null);
   useEffect(() => {
     if (state.data?.serverTime) {
       clockOffset.current = clockOffsetMs(state.data.serverTime);
@@ -240,6 +252,12 @@ export function ConsultationChatScreen({
         if (payload.serverTime) {
           clockOffset.current = clockOffsetMs(payload.serverTime);
         }
+        /** Away-ness is as missable as a pause: recover the true current answer. */
+        setUserAwayEndsAt(
+          payload.userAwaySince && payload.userAwayEndsInSeconds
+            ? new Date(new Date(payload.userAwaySince).getTime() + payload.userAwayEndsInSeconds * 1000).toISOString()
+            : null,
+        );
         if (payload.package) {
           setPkg(payload.package);
           if (payload.package.phase === 'awaiting_choice' && payload.status === 'active') {
@@ -266,6 +284,16 @@ export function ConsultationChatScreen({
         if (payload.paused === true) setSessionPaused(true);
         else if (payload.paused === false) setSessionPaused(false);
       },
+      /**
+       * Their app went away — closed, killed, or off the network. Worth saying
+       * out loud: otherwise the chat simply goes quiet and then ends, and the
+       * astrologer is left wondering whether they were ignored.
+       */
+      onUserLeft: payload => {
+        clockOffset.current = clockOffsetMs(payload.serverTime);
+        setUserAwayEndsAt(new Date(new Date(payload.serverTime).getTime() + payload.endsInSeconds * 1000).toISOString());
+      },
+      onUserReturned: () => setUserAwayEndsAt(null),
       onPackageWarning: payload => {
         clockOffset.current = clockOffsetMs(payload.serverTime);
         setPkg(current => (current ? { ...current, endsAt: payload.endsAt } : current));
@@ -309,10 +337,11 @@ export function ConsultationChatScreen({
   const [generating, setGenerating] = useState(false);
   /** Whose chart the details sheet is open for; `null` while it's closed. */
   const [kundliFor, setKundliFor] = useState<string | null>(null);
-  /** True when the form was submitted for someone other than the saved chart's person — that chart is then not shown for them. */
-  const [kundliMismatch, setKundliMismatch] = useState(false);
+  /** A chart generated from this screen, which then stands in for the one read on open. */
+  const [generatedKundli, setGeneratedKundli] = useState<SeekerKundli | null>(null);
+  /** A generate request in flight — the sheet waits on it rather than showing "nothing saved". */
+  const [generatingKundli, setGeneratingKundli] = useState(false);
   const [leaving, setLeaving] = useState(false);
-
   /**
    * The seeker's already-generated kundli for this consultation, from the
    * database (GET /chats/:chatId/kundli) — read once when the chat opens.
@@ -322,13 +351,38 @@ export function ConsultationChatScreen({
     [chatId],
     { skip: !chatId },
   );
-  const savedKundli = seekerKundli.data ?? undefined;
+  /** What the sheet draws: whatever was just generated here, else what was read on open. */
+  const savedKundli = generatedKundli ?? seekerKundli.data ?? undefined;
   /** Whose chart it is: the saved chart's name, else the intake's, else the peer. */
   const kundliName = savedKundli?.birthDetails?.fullName || peerName;
 
+  /**
+   * Android's own back button, while a consultation is live.
+   *
+   * Unclaimed, it leaves the app — which drops the astrologer out of a session
+   * the seeker is still sitting in, over one stray press. It asks instead, the
+   * same question the header's own leave control asks. A consultation that is
+   * already over (`readOnly`, opened from history) has nothing to confirm, so
+   * back simply goes back.
+   */
+  useEffect(() => {
+    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (leaving) {
+        setLeaving(false);
+        return true;
+      }
+      if (readOnly) {
+        onLeave?.();
+        return true;
+      }
+      setLeaving(true);
+      return true;
+    });
+    return () => subscription.remove();
+  }, [leaving, readOnly, onLeave]);
+
   /** The header's kundli button: straight to the seeker's saved kundli. */
   const openSavedKundli = () => {
-    setKundliMismatch(false);
     setKundliFor(kundliName);
   };
 
@@ -339,14 +393,33 @@ export function ConsultationChatScreen({
   };
 
   /**
-   * The form submitted: show the saved kundli — but only if the form still
-   * describes that person (same date and time of birth). Details edited to
-   * someone else get an honest "no saved kundli", never another person's chart.
+   * The form submitted: generate the chart for these birth details and show it.
+   *
+   * Really generates — the astrologer is not stuck waiting for the seeker to do
+   * it in their own app, and details edited to someone the seeker is asking
+   * about get that person's chart rather than an empty sheet. It is stored
+   * against the seeker either way, so nothing is fetched or paid for twice.
    */
-  const generate = (details: KundliDraft) => {
+  const generate = async (details: KundliDraft) => {
     setGenerating(false);
-    setKundliMismatch(Boolean(savedKundli?.found) && !draftMatchesBirthDetails(details, savedKundli?.birthDetails));
     setKundliFor(details.name.trim() || kundliName);
+
+    if (!chatId || !canGenerateKundli(details)) {
+      Alert.alert('Birth details needed', 'Fill in the name, date, time and place of birth to generate a kundli.');
+      return;
+    }
+
+    setGeneratingKundli(true);
+    try {
+      setGeneratedKundli(await api.generateSeekerKundli(chatId, toKundliRequest(details)));
+    } catch (error) {
+      Alert.alert(
+        'Could not generate the kundli',
+        error instanceof Error ? error.message : 'Please try again in a moment.',
+      );
+    } finally {
+      setGeneratingKundli(false);
+    }
   };
 
   const send = async () => {
@@ -383,6 +456,8 @@ export function ConsultationChatScreen({
 
   /** Package time left, on the server's clock — recomputed on every render, which the running clock above triggers once a second. */
   const packageSecondsLeft = pkg?.phase === 'package' ? secondsUntil(pkg.endsAt, clockOffset.current) : 0;
+  /** Counted off the same 1s tick the header clock runs on, so it needs no timer of its own. */
+  const userAwaySecondsLeft = userAwayEndsAt ? secondsUntil(userAwayEndsAt, clockOffset.current) : 0;
 
   return (
     <View style={styles.screen}>
@@ -425,6 +500,27 @@ export function ConsultationChatScreen({
           </View>
         )}
 
+        {/**
+          * The seeker's app has gone. Said plainly, with how long is left,
+          * because the alternative is a chat that goes quiet for no visible
+          * reason and then ends by itself.
+          */}
+        {!readOnly && userAwayEndsAt && (
+          <View accessibilityRole="alert" style={styles.awayBanner}>
+            <Text style={styles.awayBannerText}>
+              {userAwaySecondsLeft > 0
+                ? `Seeker's app has closed — the consultation ends in ${userAwaySecondsLeft}s unless they come back.`
+                : /**
+                   * The countdown is up but the session is not closed yet — the
+                   * sweep that ends it runs every 10 seconds. Said as the state
+                   * it is, rather than a stuck "0s" that looks like a hung
+                   * clock.
+                   */
+                  'Seeker\'s app has closed — ending the consultation now…'}
+            </Text>
+          </View>
+        )}
+
         {/** A finished consultation has nothing left to say into. */}
         {!readOnly && (
           <ChatComposer
@@ -445,7 +541,7 @@ export function ConsultationChatScreen({
           savedKundli?.found
             ? "The seeker's saved birth details — Generate shows their kundli."
             : savedKundli
-              ? 'Birth details from the seeker\'s intake. They have no saved kundli for these yet.'
+              ? 'Birth details from the seeker\'s intake — Generate creates their kundli.'
               : undefined
         }
       />
@@ -455,12 +551,10 @@ export function ConsultationChatScreen({
         name={kundliFor ?? kundliName}
         kundli={savedKundli}
         loading={seekerKundli.loading}
-        mismatch={kundliMismatch}
+        generating={generatingKundli}
+        note={kundliMatchNote(savedKundli)}
         onOpenForm={openKundliForm}
-        onClose={() => {
-          setKundliFor(null);
-          setKundliMismatch(false);
-        }}
+        onClose={() => setKundliFor(null)}
       />
 
       <LeaveChatDialog
@@ -512,6 +606,19 @@ function createStyles(contentWidth: number, isTablet: boolean) {
     pausedBannerText: {
       ...typography.caption,
       color: colors.status.warning,
+      textAlign: 'center',
+    },
+    awayBanner: {
+      alignSelf: 'center',
+      width: '100%',
+      maxWidth: isTablet ? contentWidth : undefined,
+      paddingHorizontal: 17,
+      paddingVertical: spacing.sm,
+      backgroundColor: colors.status.dangerTint,
+    },
+    awayBannerText: {
+      ...typography.caption,
+      color: colors.status.danger,
       textAlign: 'center',
     },
   });

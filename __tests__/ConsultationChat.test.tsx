@@ -1,5 +1,5 @@
 import { CHAT_TRANSCRIPT } from './helpers/fixtures';
-import { fireLowBalance, fireTick } from './helpers/apiMock';
+import { fireLowBalance, fireRejoinState, fireTick, fireUserLeft, fireUserReturned } from './helpers/apiMock';
 import React from 'react';
 import { TextInput } from 'react-native';
 import ReactTestRenderer from 'react-test-renderer';
@@ -364,11 +364,10 @@ test('the intake\'s Generate Kundli opens the form pre-filled with the seeker\'s
   });
   expect(form().props.visible).toBe(false);
   expect(tree.root.findByType(KundliDetailsSheet).props.visible).toBe(true);
-  expect(tree.root.findByType(KundliDetailsSheet).props.mismatch).toBe(false);
   expect(textOf(tree)).toContain('Lagna: Taurus');
 });
 
-test('details edited to someone else never show the seeker\'s chart for them', async () => {
+test('details edited to someone else generate THAT person\'s chart, and say so', async () => {
   const tree = await render(<ConsultationChatScreen chatId="chat-1" peerName="Astro Rakesh" />);
   await settle();
   await act(() => {
@@ -379,10 +378,60 @@ test('details edited to someone else never show the seeker\'s chart for them', a
       name: 'Someone', gender: 'Female', day: '01', month: 'January', year: '2000', hour: '10', minute: '00', birthPlace: 'Mumbai, India',
     });
   });
+  await settle();
+
+  /** Generated for exactly what was typed — dd/mm/yyyy and 24-hour, as the backend parses. */
+  expect((api as any).generateSeekerKundli).toHaveBeenCalledWith('chat-1', {
+    fullName: 'Someone',
+    gender: 'female',
+    dateOfBirth: '01/01/2000',
+    timeOfBirth: '10:00',
+    place: 'Mumbai, India',
+  });
   const text = textOf(tree);
-  expect(text).toContain('No saved kundli');
-  expect(text).toContain("don't match the seeker's saved kundli");
-  expect(text).not.toContain('Lagna: Taurus');
+  expect(text).toContain('Kundli Details of Someone');
+  expect(text).toContain('Generated from the birth details entered');
+  expect(text).not.toContain('No kundli yet');
+});
+
+test('a chart that does not answer the intake is shown, labelled as the seeker\'s own', async () => {
+  /** The real case: their kundli is for 13/05/2004, this intake says 01/01/2000. */
+  (api as any).fetchSeekerKundli.mockResolvedValueOnce({
+    ...SEEKER_KUNDLI,
+    match: 'seeker',
+    birthDetails: { fullName: 'mithu', dateOfBirth: '2004-05-13T00:00:00.000Z', timeOfBirth: '08:00', place: 'Noida, IN' },
+    intakeBirthDetails: { fullName: 'mithu', dateOfBirth: '2000-01-01T00:00:00.000Z', timeOfBirth: '11:00', place: 'Noida sector 62' },
+  });
+  const tree = await render(<ConsultationChatScreen chatId="chat-1" peerName="Astro Rakesh" />);
+  await settle();
+  await act(() => {
+    byLabel(tree, 'Kundli details').props.onPress();
+  });
+
+  const text = textOf(tree);
+  /** The chart itself, not an empty sheet — this is what was broken. */
+  expect(text).toContain('Lagna: Taurus');
+  expect(text).toContain("mithu's saved kundli");
+  expect(text).toContain('01 Jan 2000');
+  expect(text).not.toContain('No kundli yet');
+});
+
+test('a chart for the same birth date but a different time says which time the intake gave', async () => {
+  (api as any).fetchSeekerKundli.mockResolvedValueOnce({
+    ...SEEKER_KUNDLI,
+    match: 'date',
+    intakeBirthDetails: { dateOfBirth: '1999-02-08T00:00:00.000Z', timeOfBirth: '09:45' },
+  });
+  const tree = await render(<ConsultationChatScreen chatId="chat-1" peerName="Astro Rakesh" />);
+  await settle();
+  await act(() => {
+    byLabel(tree, 'Kundli details').props.onPress();
+  });
+
+  const text = textOf(tree);
+  expect(text).toContain('Lagna: Taurus');
+  expect(text).toContain('different time of birth');
+  expect(text).toContain('09:45 AM');
 });
 
 test('a seeker with no saved kundli: an honest empty state, and the form pre-filled from their intake', async () => {
@@ -398,16 +447,120 @@ test('a seeker with no saved kundli: an honest empty state, and the form pre-fil
   });
   let text = textOf(tree);
   expect(text).toContain('Kundli Details of Priya');
-  expect(text).toContain('No saved kundli');
-  expect(text).toContain("hasn't generated a kundli");
+  expect(text).toContain('No kundli yet');
+  expect(text).toContain("hasn't generated one");
 
   await act(() => {
-    byLabel(tree, 'Fill birth details').props.onPress();
+    byLabel(tree, 'Generate kundli').props.onPress();
   });
   const form = tree.root.findByType(GenerateKundliSheet);
   expect(form.props.visible).toBe(true);
   expect(form.props.initialDraft).toEqual(expect.objectContaining({ name: 'Priya', gender: 'Female', day: '01', year: '2000' }));
   text = textOf(tree);
-  expect(text).toContain('They have no saved kundli for these yet.');
+  expect(text).toContain("Generate creates their kundli");
+
+  /** And the astrologer can generate it themselves, rather than waiting on the seeker. */
+  await act(() => {
+    form.props.onGenerate(form.props.initialDraft);
+  });
+  await settle();
+  expect((api as any).generateSeekerKundli).toHaveBeenCalledWith('chat-1', {
+    fullName: 'Priya',
+    gender: 'female',
+    dateOfBirth: '01/01/2000',
+    timeOfBirth: '10:00',
+    place: 'Delhi',
+  });
+  text = textOf(tree);
+  expect(text).toContain('Lagna: Taurus');
+  expect(text).not.toContain('No kundli yet');
 });
 
+/**
+ * The seeker's app going away mid-consultation. The server ends the session over
+ * it after a grace (backend tests/user-disconnect.test.js); this is the
+ * astrologer being told, instead of the chat going quiet and then ending by
+ * itself.
+ */
+describe('the seeker\'s app going away', () => {
+  test('says so, with how long is left before the consultation ends', async () => {
+    const tree = await render(<ConsultationChatScreen chatId="chat-1" peerName="Astro Rakesh" />);
+    await settle();
+    expect(textOf(tree)).not.toContain("Seeker's app has closed");
+
+    await act(async () => {
+      fireUserLeft({ endsInSeconds: 45 });
+    });
+    const text = textOf(tree);
+    expect(text).toContain("Seeker's app has closed");
+    expect(text).toMatch(/ends in 4[0-5]s/);
+  });
+
+  test('and stops saying it the moment they come back', async () => {
+    const tree = await render(<ConsultationChatScreen chatId="chat-1" peerName="Astro Rakesh" />);
+    await settle();
+
+    await act(async () => {
+      fireUserLeft();
+    });
+    expect(textOf(tree)).toContain("Seeker's app has closed");
+
+    await act(async () => {
+      fireUserReturned();
+    });
+    expect(textOf(tree)).not.toContain("Seeker's app has closed");
+  });
+
+  test('once the countdown is up it says so, instead of sitting on 0s', async () => {
+    const tree = await render(<ConsultationChatScreen chatId="chat-1" peerName="Astro Rakesh" />);
+    await settle();
+
+    /** The grace has already run out by the time this arrives — the sweep that ends it runs every 10s. */
+    await act(async () => {
+      fireUserLeft({ endsInSeconds: 0 });
+    });
+    const text = textOf(tree);
+    expect(text).toContain('ending the consultation now');
+    expect(text).not.toContain('ends in 0s');
+  });
+
+  test('the chat stays usable — they may still be back in a moment', async () => {
+    const tree = await render(<ConsultationChatScreen chatId="chat-1" peerName="Astro Rakesh" />);
+    await settle();
+    await act(async () => {
+      fireUserLeft();
+    });
+    expect(tree.root.findByType(ChatComposer).props.disabled).toBeFalsy();
+  });
+
+  test('a reconnecting astrologer is told too, not only the one who was watching', async () => {
+    const tree = await render(<ConsultationChatScreen chatId="chat-1" peerName="Astro Rakesh" />);
+    await settle();
+
+    /** What the (re)join reports: they went 15s ago, out of a 45s grace. */
+    await act(async () => {
+      fireRejoinState({
+        userAwaySince: new Date(Date.now() - 15_000).toISOString(),
+        userAwayEndsInSeconds: 45,
+        serverTime: new Date().toISOString(),
+      });
+    });
+    const text = textOf(tree);
+    expect(text).toContain("Seeker's app has closed");
+    expect(text).toMatch(/ends in (2[5-9]|30)s/);
+  });
+
+  test('and a rejoin that reports them present clears a banner left over from before', async () => {
+    const tree = await render(<ConsultationChatScreen chatId="chat-1" peerName="Astro Rakesh" />);
+    await settle();
+    await act(async () => {
+      fireUserLeft();
+    });
+    expect(textOf(tree)).toContain("Seeker's app has closed");
+
+    await act(async () => {
+      fireRejoinState({ userAwaySince: null });
+    });
+    expect(textOf(tree)).not.toContain("Seeker's app has closed");
+  });
+});

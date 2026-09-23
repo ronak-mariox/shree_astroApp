@@ -796,6 +796,31 @@ export async function fetchSeekerKundli(chatId: string): Promise<SeekerKundli> {
 }
 
 /**
+ * Generates the seeker's kundli from inside the consultation (POST
+ * /chats/:chatId/kundli) — for when they have never generated one, or none for
+ * the birth details being asked about.
+ *
+ * The chart is stored against the SEEKER, exactly as if they had generated it
+ * in their own app, so it is there for both sides afterwards and is never paid
+ * for twice. The birth place is looked up by the backend from the name typed
+ * here; the reply is the same shape `fetchSeekerKundli` returns, so the sheet
+ * can show it straight away.
+ */
+export async function generateSeekerKundli(
+  chatId: string,
+  details: {
+    fullName: string;
+    gender?: string;
+    dateOfBirth: string;
+    timeOfBirth: string;
+    place: string;
+  },
+): Promise<SeekerKundli> {
+  const { data } = await client.post(`/chats/${chatId}/kundli`, details);
+  return data as SeekerKundli;
+}
+
+/**
  * Where support can be reached — the admin panel's Settings → Support
  * contact, from the public GET /settings. Falls back to the platform's
  * default address when it can't be read (offline, dummy mode).

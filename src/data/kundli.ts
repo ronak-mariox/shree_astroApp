@@ -125,16 +125,35 @@ export type KundliBirthDetails = {
 };
 
 /**
- * The seeker's already-generated kundli for this consultation — or, when
- * they have none for the person on the intake, `found: false` with the
- * intake's birth details (to pre-fill the form).
+ * How well the chart that came back answers what this consultation asked —
+ * the backend's own grading (services/kundliRead.service.js).
+ *
+ * The seeker types their birth details again on every intake form, from a
+ * default, so the intake and their saved kundli often disagree. Rather than
+ * show nothing in that case, the closest of the seeker's own charts comes back
+ * labelled with how close it actually is.
+ *
+ *   'intake'    — the chart for the birth details on this intake.
+ *   'date'      — same birth date, different time of birth.
+ *   'seeker'    — nothing matched the intake; the seeker's own chart.
+ *   'generated' — just generated here, from details someone typed in.
+ */
+export type KundliMatch = 'intake' | 'date' | 'seeker' | 'generated';
+
+/**
+ * The seeker's already-generated kundli for this consultation — or, when they
+ * have no saved chart at all, `found: false` with the intake's birth details
+ * (to pre-fill the form, and generate one from it).
  */
 export type SeekerKundli =
   | {
       found: true;
       profileId: string;
       status?: string;
+      match?: KundliMatch;
       birthDetails?: KundliBirthDetails;
+      /** What the intake asked about, when that is not what this chart is for. */
+      intakeBirthDetails?: KundliBirthDetails;
       chart?: { url?: string | null };
       lagna?: string;
       nakshatra?: string;
@@ -168,18 +187,6 @@ export function draftFromBirthDetails(details?: KundliBirthDetails): KundliDraft
   return draft;
 }
 
-/** Whether the form still describes the stored chart's person (same date and time of birth) — only then is that chart shown for it. */
-export function draftMatchesBirthDetails(draft: KundliDraft, details?: KundliBirthDetails): boolean {
-  const stored = draftFromBirthDetails(details);
-  return (
-    Boolean(stored.day) &&
-    draft.day === stored.day &&
-    draft.month === stored.month &&
-    draft.year === stored.year &&
-    (!stored.hour || (draft.hour === stored.hour && draft.minute === stored.minute))
-  );
-}
-
 /** "1995-08-15T00:00:00.000Z" -> "15 Aug 1995" (UTC fields — a birth date is stored at UTC midnight). */
 export function formatKundliDate(value?: string | null): string {
   if (!value) return '—';
@@ -194,4 +201,70 @@ export function formatKundliTime(value?: string): string {
   if (!time) return '—';
   const hour = Number(time[1]);
   return `${pad2(hour % 12 === 0 ? 12 : hour % 12)}:${time[2]} ${hour >= 12 ? 'PM' : 'AM'}`;
+}
+
+/**
+ * The generate form's fields → what POST /chats/:chatId/kundli takes.
+ *
+ * The backend parses "DD/MM/YYYY" and a 24-hour "HH:mm" (the same formats
+ * POST /birth-profiles takes), and looks the birth place up itself — this form
+ * has no place search behind it, so the typed name is what it gets.
+ */
+export function toKundliRequest(draft: KundliDraft): {
+  fullName: string;
+  gender?: string;
+  dateOfBirth: string;
+  timeOfBirth: string;
+  place: string;
+} {
+  /** MONTHS is a literal tuple; the draft holds whatever the wheel was left on. */
+  const month = (MONTHS as readonly string[]).indexOf(draft.month) + 1;
+  return {
+    fullName: draft.name.trim(),
+    gender: draft.gender ? draft.gender.toLowerCase() : undefined,
+    dateOfBirth: `${draft.day}/${pad2(month)}/${draft.year}`,
+    timeOfBirth: `${draft.hour}:${draft.minute}`,
+    place: draft.birthPlace.trim(),
+  };
+}
+
+/** Whether the form has enough in it to generate from — every field the backend requires. */
+export function canGenerateKundli(draft: KundliDraft): boolean {
+  return (
+    draft.name.trim().length >= 2 &&
+    draft.day !== '' &&
+    (MONTHS as readonly string[]).includes(draft.month) &&
+    /^\d{4}$/.test(draft.year) &&
+    draft.hour !== '' &&
+    draft.minute !== '' &&
+    draft.birthPlace.trim().length >= 3
+  );
+}
+
+/**
+ * What the sheet says about whose chart this is, when it isn't simply the
+ * answer to the intake.
+ *
+ * Every one of these is the seeker's own chart — but the astrologer is reading
+ * it to answer a question, so being told "this is not the birth details you
+ * were asked about" matters more than filling the screen.
+ */
+export function kundliMatchNote(kundli?: SeekerKundli | null): string | undefined {
+  if (!kundli?.found) return undefined;
+
+  const asked = kundli.intakeBirthDetails;
+  const askedFor = asked
+    ? `${formatKundliDate(asked.dateOfBirth)}${asked.timeOfBirth ? `, ${formatKundliTime(asked.timeOfBirth)}` : ''}`
+    : undefined;
+
+  switch (kundli.match) {
+    case 'generated':
+      return `Generated from the birth details entered${askedFor ? ` — note the intake asks about ${askedFor}` : ''}.`;
+    case 'date':
+      return `Same birth date as the intake, but a different time of birth${askedFor ? ` (intake: ${askedFor})` : ''}.`;
+    case 'seeker':
+      return `This is ${kundli.birthDetails?.fullName || 'the seeker'}'s saved kundli${askedFor ? `, not the ${askedFor} on this intake` : ''}. Generate one for those details if you need it.`;
+    default:
+      return undefined;
+  }
 }
