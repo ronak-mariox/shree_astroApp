@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
+  BackHandler,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -332,6 +333,31 @@ export function ConsultationChatScreen({
   const savedKundli = generatedKundli ?? seekerKundli.data ?? undefined;
   /** Whose chart it is: the saved chart's name, else the intake's, else the peer. */
   const kundliName = savedKundli?.birthDetails?.fullName || peerName;
+
+  /**
+   * Android's own back button, while a consultation is live.
+   *
+   * Unclaimed, it leaves the app — which drops the astrologer out of a session
+   * the seeker is still sitting in, over one stray press. It asks instead, the
+   * same question the header's own leave control asks. A consultation that is
+   * already over (`readOnly`, opened from history) has nothing to confirm, so
+   * back simply goes back.
+   */
+  useEffect(() => {
+    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (leaving) {
+        setLeaving(false);
+        return true;
+      }
+      if (readOnly) {
+        onLeave?.();
+        return true;
+      }
+      setLeaving(true);
+      return true;
+    });
+    return () => subscription.remove();
+  }, [leaving, readOnly, onLeave]);
 
   /** The header's kundli button: straight to the seeker's saved kundli. */
   const openSavedKundli = () => {
