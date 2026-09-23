@@ -36,12 +36,15 @@ type KundliDetailsSheetProps = {
   /** The seeker's saved kundli (GET /chats/:chatId/kundli); undefined while it loads. */
   kundli?: SeekerKundli | null;
   loading?: boolean;
+  /** A generate request in flight — waited on rather than showing "nothing saved". */
+  generating?: boolean;
   /**
-   * Set when the sheet was opened for details that aren't the saved chart's
-   * person (edited in the form) — the saved chart is then NOT shown for them.
+   * Whose chart this really is, when that isn't simply the answer to the intake
+   * (data/kundli.ts's kundliMatchNote) — so a chart is never read as answering
+   * birth details it isn't for.
    */
-  mismatch?: boolean;
-  /** "Fill birth details" from the empty state — opens the generate form. */
+  note?: string;
+  /** Opens the generate form — from the empty state, or to generate for other details. */
   onOpenForm?: () => void;
 };
 
@@ -60,10 +63,12 @@ export function KundliDetailsSheet({
   onClose,
   kundli,
   loading = false,
-  mismatch = false,
+  generating = false,
+  note,
   onOpenForm,
 }: KundliDetailsSheetProps) {
-  const chart = kundli?.found && !mismatch ? kundli : null;
+  const chart = kundli?.found ? kundli : null;
+  const busy = loading || generating;
   const [tab, setTab] = useState<KundliTab>('lagna');
 
   const close = () => {
@@ -104,22 +109,33 @@ export function KundliDetailsSheet({
         })}
       </View>
 
-      {loading && !chart ? (
+      {chart && note ? (
+        <Pressable
+          accessibilityRole={onOpenForm ? 'button' : undefined}
+          accessibilityLabel={onOpenForm ? 'Whose kundli this is' : undefined}
+          onPress={onOpenForm}
+          style={styles.note}
+        >
+          <Text style={styles.noteText}>{note}</Text>
+        </Pressable>
+      ) : null}
+
+      {busy && (!chart || generating) ? (
         <View style={styles.state}>
           <ActivityIndicator color={colors.text.slateMuted} />
-          <Text style={styles.stateText}>Loading the seeker's kundli…</Text>
+          <Text style={styles.stateText}>
+            {generating ? 'Generating the kundli — this takes a few seconds…' : "Loading the seeker's kundli…"}
+          </Text>
         </View>
       ) : !chart ? (
         <View style={styles.state}>
-          <Text style={styles.stateTitle}>No saved kundli</Text>
+          <Text style={styles.stateTitle}>No kundli yet</Text>
           <Text style={styles.stateText}>
-            {mismatch
-              ? "These birth details don't match the seeker's saved kundli, so it isn't shown for them."
-              : `${name} hasn't generated a kundli for these birth details yet. Once they generate it in their app, it shows here.`}
+            {`${name} hasn't generated one. Enter their birth details and you can generate it from here.`}
           </Text>
           {onOpenForm && (
-            <Pressable accessibilityRole="button" accessibilityLabel="Fill birth details" onPress={onOpenForm}>
-              <Text style={styles.stateLink}>View birth details</Text>
+            <Pressable accessibilityRole="button" accessibilityLabel="Generate kundli" onPress={onOpenForm}>
+              <Text style={styles.stateLink}>Enter birth details</Text>
             </Pressable>
           )}
         </View>
@@ -210,6 +226,19 @@ function Row({
 }
 
 const styles = StyleSheet.create({
+  /** Sits under the tabs, above the chart — read before the chart is trusted. */
+  note: {
+    marginHorizontal: 18,
+    marginTop: spacing.xs,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    borderRadius: radius.chipSmall,
+    backgroundColor: colors.surfaceField,
+  },
+  noteText: {
+    ...typography.tableCell,
+    color: colors.text.slateMuted,
+  },
   state: {
     alignItems: 'center',
     gap: spacing.sm,

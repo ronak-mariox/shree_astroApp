@@ -361,6 +361,32 @@ export const SEEKER_KUNDLI = {
 };
 export const fetchSeekerKundli = jest.fn(async (_chatId: string) => SEEKER_KUNDLI as unknown);
 
+/**
+ * POST /chats/:chatId/kundli — the astrologer generating it from inside the
+ * consultation. Answers with a chart for the details it was given, marked
+ * `generated`, the way the real endpoint does.
+ */
+export const generateSeekerKundli = jest.fn(
+  async (
+    _chatId: string,
+    details: { fullName: string; gender?: string; dateOfBirth: string; timeOfBirth: string; place: string },
+  ) => {
+    const [day, month, year] = details.dateOfBirth.split('/');
+    return {
+      ...SEEKER_KUNDLI,
+      profileId: 'bp-generated',
+      match: 'generated' as const,
+      birthDetails: {
+        fullName: details.fullName,
+        gender: details.gender,
+        dateOfBirth: `${year}-${month}-${day}T00:00:00.000Z`,
+        timeOfBirth: details.timeOfBirth,
+        place: details.place,
+      },
+    } as unknown;
+  },
+);
+
 /** The admin's support contact (public GET /settings). */
 export const fetchSupportContact = async () => ({ email: 'support@shreeastro.com' });
 
