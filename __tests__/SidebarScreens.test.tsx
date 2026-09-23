@@ -85,6 +85,50 @@ test('a dispute is refused without an issue type or enough detail', async () => 
   expect(textOf(tree)).toContain('Describe the issue in a little more detail.');
 });
 
+test('a raised dispute is listed under the form, with support\'s answer when it comes', async () => {
+  const { resetDisputes, fetchMyDisputes } = require('./helpers/apiMock');
+  resetDisputes();
+  const tree = await render(<HelpSupportScreen />);
+  /** Nothing raised yet — no list at all. */
+  expect(textOf(tree)).not.toContain('My Disputes');
+
+  await act(async () => {
+    pressableLabelled(tree, 'Astrologer Issue').props.onPress();
+  });
+  await act(async () => {
+    inputLabelled(tree, 'Description').props.onChangeText('A seeker disputed my reading, please review the chat.');
+  });
+  await act(async () => {
+    await pressableLabelled(tree, 'Submit Dispute').props.onPress();
+  });
+  await act(async () => {
+    for (let i = 0; i < 5; i += 1) await Promise.resolve();
+  });
+
+  let text = textOf(tree);
+  expect(text).toContain('My Disputes');
+  expect(text).toContain('TKT-TEST1');
+  expect(text).toContain('A seeker disputed my reading');
+  expect(text).toContain('Open');
+
+  /** Once an admin answers from the panel, the reply comes back here. */
+  fetchMyDisputes.mockResolvedValueOnce([
+    {
+      _id: 'tkt-1',
+      reference: 'TKT-TEST1',
+      issueType: 'astrologer',
+      description: 'A seeker disputed my reading, please review the chat.',
+      status: 'resolved',
+      resolution: 'Reviewed the transcript — the seeker has been refunded.',
+      createdAt: new Date().toISOString(),
+    },
+  ]);
+  const answered = await render(<HelpSupportScreen />);
+  text = textOf(answered);
+  expect(text).toContain('Resolved');
+  expect(text).toContain('Support: Reviewed the transcript');
+});
+
 test('a complete dispute is raised and the form clears', async () => {
   const tree = await render(<HelpSupportScreen />);
 

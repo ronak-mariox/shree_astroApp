@@ -50,6 +50,22 @@ export const ISSUE_TYPES: ReadonlyArray<IssueType> = [
   { id: 'donation', label: 'Donation Query', Icon: HeartIcon },
 ];
 
+/** A dispute this astrologer has raised, as GET /support/tickets returns it. */
+export type RaisedDispute = {
+  _id: string;
+  reference: string;
+  issueType: string;
+  description: string;
+  status: 'open' | 'in_progress' | 'resolved' | 'closed';
+  /** What an admin wrote back, once they have. */
+  resolution?: string;
+  createdAt: string;
+};
+
+/** "in_progress" -> "In progress". */
+export const disputeStatusLabel = (status: string) =>
+  status.replace(/_/g, ' ').replace(/^./, character => character.toUpperCase());
+
 export type Dispute = {
   issueType: string;
   description: string;

@@ -207,13 +207,28 @@ export const deleteGalleryImage = async (id: string) => {
 
 /* ------------------------------------------------------------------ support */
 
+/** Disputes raised in a test run, so the screen's own list can be asserted. */
+const raisedDisputes: Array<Record<string, unknown>> = [];
+
 export const submitDispute = async (dispute: Dispute) => {
   const { validateDispute } = require('../../src/data/support');
   const problem = validateDispute(dispute);
   if (problem) {
     throw new Error(problem);
   }
+  raisedDisputes.unshift({
+    _id: `tkt-${raisedDisputes.length + 1}`,
+    reference: `TKT-TEST${raisedDisputes.length + 1}`,
+    issueType: dispute.issueType,
+    description: dispute.description,
+    status: 'open',
+    createdAt: new Date().toISOString(),
+  });
 };
+
+export const fetchMyDisputes = jest.fn(async () => raisedDisputes.map(entry => ({ ...entry })));
+/** Test-only: clears what previous tests raised. */
+export const resetDisputes = () => raisedDisputes.splice(0);
 
 /* ------------------------------------------------------------------- rates */
 

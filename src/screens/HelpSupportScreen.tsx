@@ -19,8 +19,9 @@ import {
   SupportChatIcon,
 } from '../components/icons/SupportIcons';
 import { ProfileHeader } from '../components/ProfileHeader';
-import { FAQS, ISSUE_TYPES } from '../data/support';
-import { fetchSupportContact } from '../services/api';
+import { FAQS, ISSUE_TYPES, disputeStatusLabel } from '../data/support';
+import { useApi } from '../hooks/useApi';
+import { fetchMyDisputes, fetchSupportContact } from '../services/api';
 import { useAppData } from '../state/AppDataProvider';
 import { colors, radius, spacing, typography } from '../theme';
 
@@ -51,6 +52,8 @@ export function HelpSupportScreen({
   const [description, setDescription] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [sent, setSent] = useState(false);
+  /** Everything this astrologer has already raised, and what support said back. */
+  const raised = useApi(() => fetchMyDisputes(), []);
 
   /**
    * Quick Help's defaults when the caller doesn't hand off to a channel of
@@ -90,15 +93,17 @@ export function HelpSupportScreen({
 
   const submit = async () => {
     setSubmitting(true);
-    const raised = await submitDispute({
+    const ok = await submitDispute({
       issueType: issueType ?? '',
       description,
     });
     setSubmitting(false);
-    if (raised) {
+    if (ok) {
       setIssueType(null);
       setDescription('');
       setSent(true);
+      /** It is on record now — show it in the list below straight away. */
+      raised.reload();
     }
   };
 
@@ -249,6 +254,32 @@ export function HelpSupportScreen({
             </Pressable>
           </View>
         </View>
+
+        {/* What has already been raised — proof it went through, and where support's answer lands. */}
+        {(raised.data?.length ?? 0) > 0 && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>My Disputes</Text>
+            {(raised.data ?? []).map(dispute => (
+              <View key={dispute._id} style={styles.disputeCard}>
+                <View style={styles.disputeTop}>
+                  <Text style={styles.disputeRef}>{dispute.reference}</Text>
+                  <View
+                    style={[
+                      styles.statusPill,
+                      (dispute.status === 'resolved' || dispute.status === 'closed') && styles.statusPillDone,
+                    ]}
+                  >
+                    <Text style={styles.statusLabel}>{disputeStatusLabel(dispute.status)}</Text>
+                  </View>
+                </View>
+                <Text style={styles.disputeBody}>{dispute.description}</Text>
+                {dispute.resolution !== undefined && dispute.resolution !== '' && (
+                  <Text style={styles.disputeReply}>Support: {dispute.resolution}</Text>
+                )}
+              </View>
+            ))}
+          </View>
+        )}
       </ScrollView>
     </View>
   );
@@ -376,6 +407,42 @@ const styles = StyleSheet.create({
     color: colors.status.danger,
   },
   sent: {
+    ...typography.faqAnswer,
+    color: colors.status.success,
+  },
+  disputeCard: {
+    gap: 6,
+    padding: spacing.section,
+    borderRadius: radius.card,
+    backgroundColor: colors.surface,
+  },
+  disputeTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  disputeRef: {
+    ...typography.supportSection,
+    color: colors.text.slateMuted,
+  },
+  statusPill: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: 2,
+    borderRadius: radius.chipSmall,
+    backgroundColor: colors.support.heading,
+  },
+  statusPillDone: {
+    backgroundColor: colors.status.success,
+  },
+  statusLabel: {
+    ...typography.faqAnswer,
+    color: colors.text.inverse,
+  },
+  disputeBody: {
+    ...typography.faqAnswer,
+    color: colors.support.body,
+  },
+  disputeReply: {
     ...typography.faqAnswer,
     color: colors.status.success,
   },
