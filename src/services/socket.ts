@@ -45,6 +45,9 @@ export const CHAT_EVENTS = {
    */
   ASTROLOGER_LEFT: 'chat:astrologer_left',
   ASTROLOGER_JOINED: 'chat:astrologer_joined',
+  /** The seeker's own app went away (closed, killed, off the network) and came back. */
+  USER_LEFT: 'chat:user_left',
+  USER_RETURNED: 'chat:user_returned',
   /** Emitted outside any chat room, to the astrologer's own `astrologer:{id}` room — see backend/services/chat.service.js. */
   REQUESTED: 'chat:requested',
   STARTED: 'chat:started',
@@ -141,6 +144,9 @@ export function joinChatRoom(
   messages: unknown[];
   /** Package bookings only — the true current package clock, recovered on every (re)join. */
   package?: PackageView;
+  /** Set while the seeker's own app is away, with how long until the server ends the session — recovered here for the same reason as `paused`. */
+  userAwaySince?: string | null;
+  userAwayEndsInSeconds?: number;
   /** The server's clock at the time of the join — header clocks count against it, not the phone's. */
   serverTime?: string;
   error?: string;
@@ -256,8 +262,18 @@ export function subscribeToChat(
       paused: boolean;
       pausedSince: string | null;
       package?: PackageView;
+      /** Set while the seeker's app is away — recovered here because the push is as missable as any other. */
+      userAwaySince?: string | null;
+      userAwayEndsInSeconds?: number;
       serverTime?: string;
     }) => void;
+    /**
+     * The seeker's app went away. The consultation is not over yet — it ends on
+     * the server once `endsInSeconds` have passed without them coming back.
+     */
+    onUserLeft?: (payload: { chatId: string; endsInSeconds: number; serverTime: string }) => void;
+    /** They came back inside that window; the consultation carries on. */
+    onUserReturned?: (payload: { chatId: string; serverTime: string }) => void;
     /** Package bookings: ~30s of package time left. */
     onPackageWarning?: (payload: PackageWarningPayload) => void;
     /** Package bookings: the package ran out — paused until the seeker chooses how to continue. */
@@ -283,6 +299,8 @@ export function subscribeToChat(
           paused: state.paused,
           pausedSince: state.pausedSince,
           package: state.package,
+          userAwaySince: state.userAwaySince,
+          userAwayEndsInSeconds: state.userAwayEndsInSeconds,
           serverTime: state.serverTime,
         });
         for (const message of state.messages as ChatMessage[]) {
@@ -315,6 +333,12 @@ export function subscribeToChat(
     if (payload?.chatId === chatId) handlers.onEnded?.(payload);
   };
 
+  const onUserLeft = (payload: { chatId: string; endsInSeconds: number; serverTime: string }) => {
+    if (payload?.chatId === chatId) handlers.onUserLeft?.(payload);
+  };
+  const onUserReturned = (payload: { chatId: string; serverTime: string }) => {
+    if (payload?.chatId === chatId) handlers.onUserReturned?.(payload);
+  };
   const onPackageWarning = (payload: PackageWarningPayload) => {
     if (payload?.chatId === chatId) handlers.onPackageWarning?.(payload);
   };
@@ -332,6 +356,8 @@ export function subscribeToChat(
   active.on(CHAT_EVENTS.TICK, onTick);
   active.on(CHAT_EVENTS.LOW_BALANCE, onLowBalance);
   active.on(CHAT_EVENTS.ENDED, onEnded);
+  active.on(CHAT_EVENTS.USER_LEFT, onUserLeft);
+  active.on(CHAT_EVENTS.USER_RETURNED, onUserReturned);
   active.on(CHAT_EVENTS.PACKAGE_WARNING, onPackageWarning);
   active.on(CHAT_EVENTS.PER_MINUTE_STARTED, onPerMinuteStarted);
   active.on(CHAT_EVENTS.PACKAGE_ENDED, onPackageEnded);
@@ -343,6 +369,8 @@ export function subscribeToChat(
     active.off(CHAT_EVENTS.TICK, onTick);
     active.off(CHAT_EVENTS.LOW_BALANCE, onLowBalance);
     active.off(CHAT_EVENTS.ENDED, onEnded);
+    active.off(CHAT_EVENTS.USER_LEFT, onUserLeft);
+    active.off(CHAT_EVENTS.USER_RETURNED, onUserReturned);
     active.off(CHAT_EVENTS.PACKAGE_WARNING, onPackageWarning);
     active.off(CHAT_EVENTS.PER_MINUTE_STARTED, onPerMinuteStarted);
     active.off(CHAT_EVENTS.PACKAGE_ENDED, onPackageEnded);

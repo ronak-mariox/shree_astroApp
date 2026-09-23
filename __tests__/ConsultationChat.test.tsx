@@ -1,5 +1,5 @@
 import { CHAT_TRANSCRIPT } from './helpers/fixtures';
-import { fireLowBalance, fireTick } from './helpers/apiMock';
+import { fireLowBalance, fireRejoinState, fireTick, fireUserLeft, fireUserReturned } from './helpers/apiMock';
 import React from 'react';
 import { TextInput } from 'react-native';
 import ReactTestRenderer from 'react-test-renderer';
@@ -476,3 +476,78 @@ test('a seeker with no saved kundli: an honest empty state, and the form pre-fil
   expect(text).not.toContain('No kundli yet');
 });
 
+/**
+ * The seeker's app going away mid-consultation. The server ends the session over
+ * it after a grace (backend tests/user-disconnect.test.js); this is the
+ * astrologer being told, instead of the chat going quiet and then ending by
+ * itself.
+ */
+describe('the seeker\'s app going away', () => {
+  test('says so, with how long is left before the consultation ends', async () => {
+    const tree = await render(<ConsultationChatScreen chatId="chat-1" peerName="Astro Rakesh" />);
+    await settle();
+    expect(textOf(tree)).not.toContain("Seeker's app has closed");
+
+    await act(async () => {
+      fireUserLeft({ endsInSeconds: 45 });
+    });
+    const text = textOf(tree);
+    expect(text).toContain("Seeker's app has closed");
+    expect(text).toMatch(/ends in 4[0-5]s/);
+  });
+
+  test('and stops saying it the moment they come back', async () => {
+    const tree = await render(<ConsultationChatScreen chatId="chat-1" peerName="Astro Rakesh" />);
+    await settle();
+
+    await act(async () => {
+      fireUserLeft();
+    });
+    expect(textOf(tree)).toContain("Seeker's app has closed");
+
+    await act(async () => {
+      fireUserReturned();
+    });
+    expect(textOf(tree)).not.toContain("Seeker's app has closed");
+  });
+
+  test('the chat stays usable — they may still be back in a moment', async () => {
+    const tree = await render(<ConsultationChatScreen chatId="chat-1" peerName="Astro Rakesh" />);
+    await settle();
+    await act(async () => {
+      fireUserLeft();
+    });
+    expect(tree.root.findByType(ChatComposer).props.disabled).toBeFalsy();
+  });
+
+  test('a reconnecting astrologer is told too, not only the one who was watching', async () => {
+    const tree = await render(<ConsultationChatScreen chatId="chat-1" peerName="Astro Rakesh" />);
+    await settle();
+
+    /** What the (re)join reports: they went 15s ago, out of a 45s grace. */
+    await act(async () => {
+      fireRejoinState({
+        userAwaySince: new Date(Date.now() - 15_000).toISOString(),
+        userAwayEndsInSeconds: 45,
+        serverTime: new Date().toISOString(),
+      });
+    });
+    const text = textOf(tree);
+    expect(text).toContain("Seeker's app has closed");
+    expect(text).toMatch(/ends in (2[5-9]|30)s/);
+  });
+
+  test('and a rejoin that reports them present clears a banner left over from before', async () => {
+    const tree = await render(<ConsultationChatScreen chatId="chat-1" peerName="Astro Rakesh" />);
+    await settle();
+    await act(async () => {
+      fireUserLeft();
+    });
+    expect(textOf(tree)).toContain("Seeker's app has closed");
+
+    await act(async () => {
+      fireRejoinState({ userAwaySince: null });
+    });
+    expect(textOf(tree)).not.toContain("Seeker's app has closed");
+  });
+});

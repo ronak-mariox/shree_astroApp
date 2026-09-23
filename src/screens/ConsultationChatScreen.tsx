@@ -136,6 +136,13 @@ export function ConsultationChatScreen({
    * and once it runs out it counts the session up like any other.
    */
   const [pkg, setPkg] = useState<PackageView>();
+  /**
+   * The seeker's app is away, and when the server will end the session over it.
+   * Held as the moment it runs out (on the server's clock) rather than a
+   * counter, so the banner's countdown survives re-renders and a clock that is
+   * a few seconds off.
+   */
+  const [userAwayEndsAt, setUserAwayEndsAt] = useState<string | null>(null);
   useEffect(() => {
     if (state.data?.serverTime) {
       clockOffset.current = clockOffsetMs(state.data.serverTime);
@@ -245,6 +252,12 @@ export function ConsultationChatScreen({
         if (payload.serverTime) {
           clockOffset.current = clockOffsetMs(payload.serverTime);
         }
+        /** Away-ness is as missable as a pause: recover the true current answer. */
+        setUserAwayEndsAt(
+          payload.userAwaySince && payload.userAwayEndsInSeconds
+            ? new Date(new Date(payload.userAwaySince).getTime() + payload.userAwayEndsInSeconds * 1000).toISOString()
+            : null,
+        );
         if (payload.package) {
           setPkg(payload.package);
           if (payload.package.phase === 'awaiting_choice' && payload.status === 'active') {
@@ -271,6 +284,16 @@ export function ConsultationChatScreen({
         if (payload.paused === true) setSessionPaused(true);
         else if (payload.paused === false) setSessionPaused(false);
       },
+      /**
+       * Their app went away — closed, killed, or off the network. Worth saying
+       * out loud: otherwise the chat simply goes quiet and then ends, and the
+       * astrologer is left wondering whether they were ignored.
+       */
+      onUserLeft: payload => {
+        clockOffset.current = clockOffsetMs(payload.serverTime);
+        setUserAwayEndsAt(new Date(new Date(payload.serverTime).getTime() + payload.endsInSeconds * 1000).toISOString());
+      },
+      onUserReturned: () => setUserAwayEndsAt(null),
       onPackageWarning: payload => {
         clockOffset.current = clockOffsetMs(payload.serverTime);
         setPkg(current => (current ? { ...current, endsAt: payload.endsAt } : current));
@@ -319,7 +342,6 @@ export function ConsultationChatScreen({
   /** A generate request in flight — the sheet waits on it rather than showing "nothing saved". */
   const [generatingKundli, setGeneratingKundli] = useState(false);
   const [leaving, setLeaving] = useState(false);
-
   /**
    * The seeker's already-generated kundli for this consultation, from the
    * database (GET /chats/:chatId/kundli) — read once when the chat opens.
@@ -434,6 +456,8 @@ export function ConsultationChatScreen({
 
   /** Package time left, on the server's clock — recomputed on every render, which the running clock above triggers once a second. */
   const packageSecondsLeft = pkg?.phase === 'package' ? secondsUntil(pkg.endsAt, clockOffset.current) : 0;
+  /** Counted off the same 1s tick the header clock runs on, so it needs no timer of its own. */
+  const userAwaySecondsLeft = userAwayEndsAt ? secondsUntil(userAwayEndsAt, clockOffset.current) : 0;
 
   return (
     <View style={styles.screen}>
@@ -472,6 +496,21 @@ export function ConsultationChatScreen({
               {pkg?.phase === 'awaiting_choice'
                 ? 'Package time is over — chat paused while the seeker chooses how to continue.'
                 : "Seeker's balance is low — chat paused until they recharge."}
+            </Text>
+          </View>
+        )}
+
+        {/**
+          * The seeker's app has gone. Said plainly, with how long is left,
+          * because the alternative is a chat that goes quiet for no visible
+          * reason and then ends by itself.
+          */}
+        {!readOnly && userAwayEndsAt && (
+          <View accessibilityRole="alert" style={styles.awayBanner}>
+            <Text style={styles.awayBannerText}>
+              {userAwaySecondsLeft > 0
+                ? `Seeker's app has closed — the consultation ends in ${userAwaySecondsLeft}s unless they come back.`
+                : 'Seeker\'s app has closed — ending the consultation.'}
             </Text>
           </View>
         )}
@@ -561,6 +600,19 @@ function createStyles(contentWidth: number, isTablet: boolean) {
     pausedBannerText: {
       ...typography.caption,
       color: colors.status.warning,
+      textAlign: 'center',
+    },
+    awayBanner: {
+      alignSelf: 'center',
+      width: '100%',
+      maxWidth: isTablet ? contentWidth : undefined,
+      paddingHorizontal: 17,
+      paddingVertical: spacing.sm,
+      backgroundColor: colors.status.dangerTint,
+    },
+    awayBannerText: {
+      ...typography.caption,
+      color: colors.status.danger,
       textAlign: 'center',
     },
   });
