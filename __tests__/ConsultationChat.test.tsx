@@ -511,6 +511,19 @@ describe('the seeker\'s app going away', () => {
     expect(textOf(tree)).not.toContain("Seeker's app has closed");
   });
 
+  test('once the countdown is up it says so, instead of sitting on 0s', async () => {
+    const tree = await render(<ConsultationChatScreen chatId="chat-1" peerName="Astro Rakesh" />);
+    await settle();
+
+    /** The grace has already run out by the time this arrives — the sweep that ends it runs every 10s. */
+    await act(async () => {
+      fireUserLeft({ endsInSeconds: 0 });
+    });
+    const text = textOf(tree);
+    expect(text).toContain('ending the consultation now');
+    expect(text).not.toContain('ends in 0s');
+  });
+
   test('the chat stays usable — they may still be back in a moment', async () => {
     const tree = await render(<ConsultationChatScreen chatId="chat-1" peerName="Astro Rakesh" />);
     await settle();

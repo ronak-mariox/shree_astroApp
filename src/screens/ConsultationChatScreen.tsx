@@ -510,7 +510,13 @@ export function ConsultationChatScreen({
             <Text style={styles.awayBannerText}>
               {userAwaySecondsLeft > 0
                 ? `Seeker's app has closed — the consultation ends in ${userAwaySecondsLeft}s unless they come back.`
-                : 'Seeker\'s app has closed — ending the consultation.'}
+                : /**
+                   * The countdown is up but the session is not closed yet — the
+                   * sweep that ends it runs every 10 seconds. Said as the state
+                   * it is, rather than a stuck "0s" that looks like a hung
+                   * clock.
+                   */
+                  'Seeker\'s app has closed — ending the consultation now…'}
             </Text>
           </View>
         )}
