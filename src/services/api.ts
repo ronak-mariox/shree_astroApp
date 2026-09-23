@@ -32,7 +32,7 @@ import { type AstrologerProfile } from '../data/profile';
 import { type Review } from '../data/reviews';
 import type { PackageView } from '../utils/sessionClock';
 import type { SeekerKundli } from '../data/kundli';
-import { validateDispute, type Dispute } from '../data/support';
+import { validateDispute, type Dispute, type RaisedDispute } from '../data/support';
 import {
   DUMMY_BANK_ACCOUNTS,
   DUMMY_DASHBOARD,
@@ -441,6 +441,17 @@ export async function deleteDocument(id: string): Promise<void> {
 /* -------------------------------------------------------------------- support */
 
 /** POST /astrologer/disputes */
+/**
+ * The disputes this astrologer has raised, newest first (GET
+ * /support/tickets) — what Help & Support lists under the form, so a raised
+ * dispute is visibly on record and the admin's answer comes back here.
+ */
+export async function fetchMyDisputes(): Promise<RaisedDispute[]> {
+  if (USE_DUMMY_DATA) return [];
+  const { data } = await client.get('/support/tickets');
+  return data.items ?? [];
+}
+
 export async function submitDispute(dispute: Dispute): Promise<void> {
   const problem = validateDispute(dispute);
   if (problem) {
