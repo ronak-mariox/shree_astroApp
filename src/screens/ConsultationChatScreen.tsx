@@ -1,9 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
+  Animated,
   BackHandler,
   KeyboardAvoidingView,
-  Platform,
   ScrollView,
   StatusBar,
   StyleSheet,
@@ -18,6 +18,7 @@ import { GenerateKundliSheet } from '../components/GenerateKundliSheet';
 import { KundliDetailsSheet } from '../components/KundliDetailsSheet';
 import { LeaveChatDialog } from '../components/LeaveChatDialog';
 import { useApi } from '../hooks/useApi';
+import { useKeyboardOpen } from '../hooks/useKeyboardOpen';
 import { useResponsive } from '../hooks/useResponsive';
 import * as api from '../services/api';
 import {
@@ -72,6 +73,59 @@ const elapsedLabel = (seconds: number) => `${formatClock(seconds)} mins`;
  * ending the session.
  * Figma: node 110:439.
  */
+/** Three bouncing dots in a seeker-side bubble — "they are typing". */
+function TypingDots() {
+  const dots = useRef([0, 1, 2].map(() => new Animated.Value(0))).current;
+  useEffect(() => {
+    const loops = dots.map((dot, index) =>
+      Animated.loop(
+        Animated.sequence([
+          Animated.delay(index * 150),
+          Animated.timing(dot, { toValue: 1, duration: 300, useNativeDriver: true }),
+          Animated.timing(dot, { toValue: 0, duration: 300, useNativeDriver: true }),
+          Animated.delay(450 - index * 150),
+        ]),
+      ),
+    );
+    loops.forEach(loop => loop.start());
+    return () => loops.forEach(loop => loop.stop());
+  }, [dots]);
+  return (
+    <View accessibilityLabel="Seeker is typing" style={typingStyles.bubble}>
+      {dots.map((dot, index) => (
+        <Animated.View
+          key={index}
+          style={[
+            typingStyles.dot,
+            { opacity: dot.interpolate({ inputRange: [0, 1], outputRange: [0.4, 1] }), transform: [{ translateY: dot.interpolate({ inputRange: [0, 1], outputRange: [0, -4] }) }] },
+          ]}
+        />
+      ))}
+    </View>
+  );
+}
+
+const typingStyles = StyleSheet.create({
+  bubble: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    gap: 5,
+    minHeight: 36,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 18,
+    backgroundColor: colors.surfaceInset,
+    marginTop: spacing.sm,
+  },
+  dot: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: colors.text.slateMuted,
+  },
+});
+
 export function ConsultationChatScreen({
   chatId,
   peerName = 'Seeker',
@@ -240,6 +294,15 @@ export function ConsultationChatScreen({
     }
     return api.subscribeToConsultation(chatId, 0, {
       onMessage: () => transcript.reload(),
+      /** The seeker is typing — three dots under the transcript until they stop (or 4s pass without another ping). */
+      onTyping: payload => {
+        if (payload.role !== 'user') return;
+        setSeekerTyping(payload.isTyping);
+        if (seekerTypingTimer.current) clearTimeout(seekerTypingTimer.current);
+        if (payload.isTyping) {
+          seekerTypingTimer.current = setTimeout(() => setSeekerTyping(false), 4000);
+        }
+      },
       /**
        * Fires on every (re)join, including the very first one — a socket
        * that's already connected before this screen mounts still runs this
@@ -334,6 +397,34 @@ export function ConsultationChatScreen({
   ];
 
   const [draft, setDraft] = useState('');
+  const transcriptRef = useRef<React.ComponentRef<typeof ScrollView>>(null);
+  /** Keep the latest messages in view once the keyboard has taken its space. */
+  const keyboardOpen = useKeyboardOpen();
+  useEffect(() => {
+    if (!keyboardOpen) return undefined;
+    const timer = setTimeout(() => transcriptRef.current?.scrollToEnd({ animated: true }), 80);
+    return () => clearTimeout(timer);
+  }, [keyboardOpen]);
+  /** Whether the seeker is typing right now (from chat:typing), shown as dots under the transcript. */
+  const [seekerTyping, setSeekerTyping] = useState(false);
+  const seekerTypingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** Our own typing pings: at most one "typing" every 2.5s while the draft changes, and a "stopped" 3s after the last keystroke. */
+  const typingSentAt = useRef(0);
+  const typingStopTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const onDraftChange = (text: string) => {
+    setDraft(text);
+    if (!chatId || readOnly) return;
+    const now = Date.now();
+    if (text.length > 0 && now - typingSentAt.current > 2500) {
+      typingSentAt.current = now;
+      api.sendTyping(chatId, true);
+    }
+    if (typingStopTimer.current) clearTimeout(typingStopTimer.current);
+    typingStopTimer.current = setTimeout(() => {
+      typingSentAt.current = 0;
+      api.sendTyping(chatId, false);
+    }, 3000);
+  };
   const [generating, setGenerating] = useState(false);
   /** Whose chart the details sheet is open for; `null` while it's closed. */
   const [kundliFor, setKundliFor] = useState<string | null>(null);
@@ -427,6 +518,9 @@ export function ConsultationChatScreen({
     if (body.length === 0 || sessionPaused) {
       return;
     }
+    if (typingStopTimer.current) clearTimeout(typingStopTimer.current);
+    typingSentAt.current = 0;
+    if (chatId) api.sendTyping(chatId, false);
 
     /** Shown straight away; the server is told next. */
     const pending: ChatMessage = {
@@ -477,10 +571,18 @@ export function ConsultationChatScreen({
       />
 
       <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        /** 'padding' on Android too — edge-to-edge ignores adjustResize, see hooks/useKeyboardOpen.ts. */
+        behavior="padding"
+        keyboardVerticalOffset={0}
         style={styles.body}
       >
-        <ScrollView contentContainerStyle={styles.transcript}>
+        <ScrollView
+          ref={transcriptRef}
+          contentContainerStyle={styles.transcript}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="interactive"
+          onContentSizeChange={() => transcriptRef.current?.scrollToEnd({ animated: true })}
+        >
           {messages.map(message => (
             <ChatBubble
               key={message.id}
@@ -488,6 +590,7 @@ export function ConsultationChatScreen({
               onAction={openKundliForm}
             />
           ))}
+          {seekerTyping && <TypingDots />}
         </ScrollView>
 
         {!readOnly && sessionPaused && (
@@ -525,7 +628,7 @@ export function ConsultationChatScreen({
         {!readOnly && (
           <ChatComposer
             value={draft}
-            onChangeText={setDraft}
+            onChangeText={onDraftChange}
             onSend={send}
             disabled={sessionPaused}
           />

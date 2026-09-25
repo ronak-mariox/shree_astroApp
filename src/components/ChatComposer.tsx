@@ -6,6 +6,7 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useKeyboardOpen } from '../hooks/useKeyboardOpen';
 
 import { BrandGradient } from './BrandGradient';
 import { SendIcon } from './icons/ChatIcons';
@@ -38,6 +39,8 @@ export function ChatComposer({
   disabled = false,
 }: ChatComposerProps) {
   const insets = useSafeAreaInsets();
+  /** The keyboard covers the navigation bar, so its safe-area padding comes off while it is open. */
+  const bottomInset = useKeyboardOpen() ? 0 : insets.bottom;
   const { contentWidth, isTablet } = useResponsive();
   const styles = useMemo(() => createStyles(contentWidth, isTablet), [contentWidth, isTablet]);
 
@@ -45,7 +48,7 @@ export function ChatComposer({
     <View
       style={[
         styles.bar,
-        { height: BAR_HEIGHT + insets.bottom, paddingBottom: insets.bottom },
+        { height: BAR_HEIGHT + bottomInset, paddingBottom: bottomInset },
       ]}
     >
       <View style={styles.field}>

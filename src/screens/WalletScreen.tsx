@@ -59,6 +59,12 @@ export function WalletScreen({
           <View style={[styles.header, { paddingTop: insets.top + 1 }]}>
             <Text style={styles.balanceLabel}>Total Wallet Balance</Text>
             <Text style={styles.balance}>{balance?.total ?? '—'}</Text>
+            {(wallet.data?.pendingWithdrawal ?? 0) > 0 && (
+              <Text style={styles.pendingNote}>
+                ₹{wallet.data!.pendingWithdrawal.toLocaleString('en-IN')} withdrawal awaiting admin approval
+                (up to 24 hours) — deducted once approved
+              </Text>
+            )}
 
             <View style={styles.tiles}>
               <Tile styles={styles} value={balance?.today ?? '—'} label="Today" />
@@ -164,6 +170,13 @@ function createStyles(px: (value: number) => number, contentWidth: number, isTab
       color: colors.text.onYellowMuted,
       textAlign: 'center',
       paddingTop: 2,
+    },
+    pendingNote: {
+      ...typography.caption,
+      marginTop: spacing.xs,
+      textAlign: 'center',
+      color: colors.text.onYellow,
+      opacity: 0.8,
     },
     withdraw: {
       flexDirection: 'row',

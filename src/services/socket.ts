@@ -191,6 +191,11 @@ export type ChatMessage = {
  * `api.ts` when there is no live connection — the socket path is the normal
  * one, but a message must never be lost just because the connection dropped.
  */
+/** Tells the other side we are (or stopped) typing. Fire-and-forget; nothing to ack. */
+export function sendTyping(chatId: string, isTyping: boolean): void {
+  getSocket()?.emit(CHAT_EVENTS.TYPING, { chatId, isTyping });
+}
+
 export function sendChatMessage(
   chatId: string,
   text: string,
@@ -282,6 +287,8 @@ export function subscribeToChat(
     onPackageExtended?: (payload: PackageExtendedPayload) => void;
     /** Package bookings: the seeker continued per-minute. */
     onPerMinuteStarted?: (payload: PerMinuteStartedPayload) => void;
+    /** The other side started (`isTyping: true`) or stopped typing — `role` says who; the server relays everyone's but our own. */
+    onTyping?: (payload: { chatId: string; role: 'user' | 'astrologer'; isTyping: boolean }) => void;
   },
 ): () => void {
   const active = connectSocket();
@@ -362,6 +369,10 @@ export function subscribeToChat(
   active.on(CHAT_EVENTS.PER_MINUTE_STARTED, onPerMinuteStarted);
   active.on(CHAT_EVENTS.PACKAGE_ENDED, onPackageEnded);
   active.on(CHAT_EVENTS.PACKAGE_EXTENDED, onPackageExtended);
+  const onTyping = (payload: { chatId: string; role: 'user' | 'astrologer'; isTyping: boolean }) => {
+    if (payload?.chatId === chatId) handlers.onTyping?.(payload);
+  };
+  active.on(CHAT_EVENTS.TYPING, onTyping);
 
   return () => {
     active.off('connect', rejoin);
@@ -375,6 +386,7 @@ export function subscribeToChat(
     active.off(CHAT_EVENTS.PER_MINUTE_STARTED, onPerMinuteStarted);
     active.off(CHAT_EVENTS.PACKAGE_ENDED, onPackageEnded);
     active.off(CHAT_EVENTS.PACKAGE_EXTENDED, onPackageExtended);
+    active.off(CHAT_EVENTS.TYPING, onTyping);
     leaveChatRoom(chatId);
   };
 }

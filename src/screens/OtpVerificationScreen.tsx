@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import {
   KeyboardAvoidingView,
-  Platform,
   Pressable,
   StatusBar,
   StyleSheet,
@@ -125,7 +124,7 @@ export function OtpVerificationScreen({
 
   return (
     <KeyboardAvoidingView
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      behavior="padding"
       style={[
         styles.screen,
         { paddingTop: insets.top, paddingBottom: insets.bottom },

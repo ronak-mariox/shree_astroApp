@@ -42,11 +42,12 @@ export function WithdrawSuccessScreen({
         </View>
       </View>
 
-      <Text style={styles.title}>Request Successfully{'\n'}processed</Text>
+      <Text style={styles.title}>Request{'\n'}submitted</Text>
 
       <Text style={styles.body}>
-        {formatRupees(amount)} will be credited to your bank account within 24
-        hours
+        Please wait up to 24 hours for admin approval. {formatRupees(amount)} will
+        be credited to your bank account once approved — your wallet balance is
+        deducted only then.
       </Text>
 
       <PrimaryButton

@@ -16,6 +16,7 @@ import {
   connectSocket,
   disconnectSocket,
   sendChatMessage,
+  sendTyping as sendTypingRaw,
   subscribeToChat,
   subscribeToIncomingRequests as subscribeToIncomingRequestsRaw,
 } from './socket';
@@ -836,6 +837,24 @@ export async function fetchSupportContact(): Promise<{ email: string; phone?: st
   }
 }
 
+/**
+ * The platform's minimum payout, from the public GET /settings — the same
+ * figure the server enforces on POST /wallet/withdrawals, so the app never
+ * blocks a request the server would accept (or vice versa). Falls back to the
+ * server's own default when the read fails.
+ */
+export async function fetchMinPayout(): Promise<number> {
+  const fallback = 100;
+  if (USE_DUMMY_DATA) return fallback;
+  try {
+    const { data } = await client.get('/settings');
+    const value = Number(data?.settings?.minPayout ?? data?.minPayout);
+    return Number.isFinite(value) && value > 0 ? value : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 export async function endConsultation(chatId: string, reason?: string) {
   if (USE_DUMMY_CONSULT) return { chatId, status: 'ended', reason };
   const { data } = await client.post(`/chats/${chatId}/end`, { reason });
@@ -882,6 +901,9 @@ export async function getChatState(chatId: string) {
  * unsubscribe function.
  */
 export const subscribeToConsultation = subscribeToChat;
+
+/** The seeker's screen shows typing dots off this — see socket.ts's sendTyping. */
+export const sendTyping = sendTypingRaw;
 
 /**
  * The incoming-request queue's live half: a new request landing in the
@@ -1024,6 +1046,8 @@ export async function submitApplication() {
  */
 export async function fetchWallet(): Promise<{
   balance: { total: string; today: string; monthly: string; lifetime: string };
+  /** Rupees reserved by withdrawal requests still awaiting admin approval (0 when none). */
+  pendingWithdrawal: number;
   transactions: Array<{
     id: string;
     title: string;
@@ -1032,7 +1056,7 @@ export async function fetchWallet(): Promise<{
     kind: 'credit' | 'withdrawal' | 'fee';
   }>;
 }> {
-  if (USE_DUMMY_DATA) return DUMMY_WALLET;
+  if (USE_DUMMY_DATA) return { pendingWithdrawal: 0, ...DUMMY_WALLET };
 
   const [earnings, ledger] = await Promise.all([
     fetchEarnings(),
@@ -1049,6 +1073,7 @@ export async function fetchWallet(): Promise<{
       monthly: `₹${(earnings.thisMonth ?? 0).toLocaleString('en-IN')}`,
       lifetime: short(earnings.lifetime ?? 0),
     },
+    pendingWithdrawal: Number(earnings.pendingWithdrawal ?? 0),
     transactions: (ledger.data.items ?? []).map((row: any) => ({
       id: String(row._id),
       title: row.title || titleCase(row.type),
