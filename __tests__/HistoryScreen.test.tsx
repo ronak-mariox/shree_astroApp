@@ -1,8 +1,10 @@
 import { HISTORY_ENTRIES, HISTORY_TOTAL } from './helpers/fixtures';
 import React from 'react';
-import { Alert, Linking, TextInput, type AlertButton } from 'react-native';
+import { Linking, TextInput } from 'react-native';
 import ReactTestRenderer from 'react-test-renderer';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+
+import { AppDialogProvider } from '../src/components/AppDialogProvider';
 
 import App from '../App';
 import { ChatComposer } from '../src/components/ChatComposer';
@@ -51,7 +53,9 @@ const render = async (element: React.ReactElement) => {
   let tree!: ReactTestRenderer.ReactTestRenderer;
   await ReactTestRenderer.act(() => {
     tree = ReactTestRenderer.create(
-      <SafeAreaProvider initialMetrics={METRICS}>{element}</SafeAreaProvider>,
+      <SafeAreaProvider initialMetrics={METRICS}>
+        <AppDialogProvider>{element}</AppDialogProvider>
+      </SafeAreaProvider>,
     );
   });
   mounted.push(tree);
@@ -65,6 +69,23 @@ afterEach(async () => {
 });
 
 const act = ReactTestRenderer.act;
+
+/**
+ * The composite pressable behind a labelled control — a dialog action, say.
+ * `Pressable` puts the label on both its composite and host node; only the
+ * composite carries `onPress`.
+ */
+const pressableLabelled = (tree: ReactTestRenderer.ReactTestRenderer, label: string) =>
+  tree.root.find(
+    node => node.props.accessibilityLabel === label && typeof node.props.onPress === 'function',
+  );
+
+/** Presses a labelled control and lets whatever it kicked off settle. */
+const press = async (tree: ReactTestRenderer.ReactTestRenderer, label: string) => {
+  await act(async () => {
+    await pressableLabelled(tree, label).props.onPress();
+  });
+};
 
 /** Walks a fresh app to the signed-in dashboard. */
 const signIn = async (tree: ReactTestRenderer.ReactTestRenderer) => {
@@ -113,17 +134,19 @@ test('chat history renders the total and a card per consultation', async () => {
   ).toEqual(HISTORY_ENTRIES.map(() => 'Chat'));
 });
 
-test('call history is the same ledger with an Audio action', async () => {
+test('call history is the same ledger without a transcript pill', async () => {
   const tree = await render(<HistoryScreen variant="call" />);
   const text = textOf(tree);
 
   expect(text).toContain('Call History');
   expect(text).not.toContain('Chat History');
-  expect(text).toContain('Audio');
-
+  /** A voice consultation leaves nothing to open — no "Audio" (or "Chat") pill, only Refund and Block. */
+  expect(text).not.toContain('Audio');
   expect(
     tree.root.findAllByType(HistoryCard).map(card => card.props.primaryAction),
-  ).toEqual(HISTORY_ENTRIES.map(() => 'Audio'));
+  ).toEqual(HISTORY_ENTRIES.map(() => undefined));
+  expect(text).toContain('Refund');
+  expect(text).toContain('Block');
 });
 
 test('the search pill filters the ledger', async () => {
@@ -226,10 +249,6 @@ test('"Missed Call" collapses the drawer onto the Consult tab, where missed requ
 });
 
 test('"Delete Account" asks for confirmation, then opens a deletion request to support', async () => {
-  let buttons: AlertButton[] = [];
-  jest.spyOn(Alert, 'alert').mockImplementation((_title, _message, given) => {
-    buttons = given ?? [];
-  });
   const openURL = jest.spyOn(Linking, 'openURL').mockResolvedValue(true as never);
   const tree = await render(<App />);
   await signIn(tree);
@@ -241,13 +260,15 @@ test('"Delete Account" asks for confirmation, then opens a deletion request to s
     tree.root.findByType(MenuSidebar).props.onSelect(MENU_ITEMS.find(item => item.id === 'delete-account'));
   });
   expect(tree.root.findByType(MenuSidebar).props.visible).toBe(false);
-  expect(buttons.map(button => button.text)).toEqual(['Cancel', 'Request deletion']);
+  /** The app's own dialog, not the OS box: both choices are there, nothing sent yet. */
+  expect(textOf(tree)).toContain('Delete account?');
+  expect(pressableLabelled(tree, 'Cancel')).toBeTruthy();
+  expect(pressableLabelled(tree, 'Request deletion')).toBeTruthy();
   expect(openURL).not.toHaveBeenCalled();
 
-  await act(async () => {
-    await buttons[1].onPress?.();
-  });
+  await press(tree, 'Request deletion');
   expect(openURL).toHaveBeenCalledWith(expect.stringMatching(/^mailto:.+\?subject=Delete%20my%20astrologer%20account$/));
+  expect(textOf(tree)).not.toContain('Delete account?');
   jest.restoreAllMocks();
 });
 
@@ -325,28 +346,26 @@ describe('dashboard stat cards', () => {
 describe('help & support quick help', () => {
   test('"Email Us" opens a mail to support; "Live Chat" explains and offers email', async () => {
     const openURL = jest.spyOn(Linking, 'openURL').mockResolvedValue(true as never);
-    let buttons: AlertButton[] = [];
-    jest.spyOn(Alert, 'alert').mockImplementation((_title, _message, given) => {
-      buttons = given ?? [];
-    });
     const tree = await render(
       <AppDataProvider>
         <HelpSupportScreen />
       </AppDataProvider>,
     );
-    const press = async (label: string) => {
-      const target = tree.root.findAll(n => n.props.accessibilityLabel === label && typeof n.props.onPress === 'function')[0];
-      await act(async () => {
-        await target.props.onPress();
-      });
-    };
 
-    await press('Email Us');
+    await press(tree, 'Email Us');
     expect(openURL).toHaveBeenCalledWith(expect.stringMatching(/^mailto:support@shreeastro\.com\?subject=/));
 
     openURL.mockClear();
-    await press('Live Chat');
-    expect(buttons.map(button => button.text)).toEqual(['OK', 'Email us']);
+    await press(tree, 'Live Chat');
+    expect(textOf(tree)).toContain('Live chat');
+    expect(textOf(tree)).toContain("Live chat isn't available yet.");
+    expect(pressableLabelled(tree, 'OK')).toBeTruthy();
+    /** Its "Email us" is the same mail as the Email Us tile. */
+    await press(tree, 'Email us');
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(openURL).toHaveBeenCalledWith(expect.stringMatching(/^mailto:support@shreeastro\.com\?subject=/));
     jest.restoreAllMocks();
   });
 });
@@ -355,34 +374,62 @@ describe('history card actions', () => {
   test('Refund and Block confirm, then file a support request naming the consultation', async () => {
     const api = require('../src/services/api');
     const dispute = jest.spyOn(api, 'submitDispute').mockResolvedValue(undefined as never);
-    const alerts: Array<{ title: string; buttons: AlertButton[] }> = [];
-    jest.spyOn(Alert, 'alert').mockImplementation((title, _message, given) => {
-      alerts.push({ title: String(title), buttons: given ?? [] });
-    });
     const tree = await render(<HistoryScreen variant="chat" />);
     const card = tree.root.findAllByType(HistoryCard)[0];
 
     await act(() => {
       card.props.onRefund();
     });
-    expect(alerts.at(-1)?.title).toBe('Request a refund?');
-    await act(async () => {
-      await alerts.at(-1)!.buttons[1].onPress?.();
-    });
+    expect(textOf(tree)).toContain('Request a refund?');
+    await press(tree, 'Request refund');
     expect(dispute).toHaveBeenCalledWith(expect.objectContaining({
       issueType: 'astrologer',
       description: expect.stringContaining(`Refund ${HISTORY_ENTRIES[0].userName} — consultation ${HISTORY_ENTRIES[0].id}`),
     }));
-    expect(alerts.at(-1)?.title).toBe('Request sent');
+    expect(textOf(tree)).toContain('Request sent');
+    expect(textOf(tree)).not.toContain('Request a refund?');
+
+    await press(tree, 'OK');
+    expect(textOf(tree)).not.toContain('Request sent');
 
     await act(() => {
       card.props.onBlock();
     });
-    expect(alerts.at(-1)?.title).toBe('Block this seeker?');
-    await act(async () => {
-      await alerts.at(-1)!.buttons[1].onPress?.();
-    });
+    expect(textOf(tree)).toContain('Block this seeker?');
+    await press(tree, 'Request block');
     expect(dispute).toHaveBeenLastCalledWith(expect.objectContaining({ description: expect.stringContaining(`Block ${HISTORY_ENTRIES[0].userName}`) }));
+    expect(textOf(tree)).toContain('Request sent');
+    jest.restoreAllMocks();
+  });
+
+  test('Cancel on the confirm files nothing', async () => {
+    const api = require('../src/services/api');
+    const dispute = jest.spyOn(api, 'submitDispute').mockResolvedValue(undefined as never);
+    const tree = await render(<HistoryScreen variant="chat" />);
+
+    await act(() => {
+      tree.root.findAllByType(HistoryCard)[0].props.onRefund();
+    });
+    expect(textOf(tree)).toContain('Request a refund?');
+    await press(tree, 'Cancel');
+    expect(dispute).not.toHaveBeenCalled();
+    expect(textOf(tree)).not.toContain('Request a refund?');
+    expect(textOf(tree)).not.toContain('Request sent');
+    jest.restoreAllMocks();
+  });
+
+  test('a request support could not take says so', async () => {
+    const api = require('../src/services/api');
+    const dispute = jest.spyOn(api, 'submitDispute').mockRejectedValue(new Error('Support is offline'));
+    const tree = await render(<HistoryScreen variant="chat" />);
+
+    await act(() => {
+      tree.root.findAllByType(HistoryCard)[0].props.onBlock();
+    });
+    await press(tree, 'Request block');
+    expect(dispute).toHaveBeenCalledTimes(1);
+    expect(textOf(tree)).toContain('Could not send');
+    expect(textOf(tree)).toContain('Support is offline');
     jest.restoreAllMocks();
   });
 

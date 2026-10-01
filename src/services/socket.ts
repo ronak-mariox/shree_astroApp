@@ -134,6 +134,8 @@ export function joinChatRoom(
 ): Promise<{
   chatId: string;
   role: 'user' | 'astrologer';
+  /** 'chat' | 'call' — a call session opens the voice-call layout instead of the transcript. */
+  channel?: string;
   status: string;
   /** Whether billing is paused for insufficient balance RIGHT NOW — the true current state, not just "was a pause event ever seen." A live chat:low_balance push can be missed by a socket that was briefly disconnected; this is how a (re)join recovers the real answer. */
   paused: boolean;
@@ -264,6 +266,8 @@ export function subscribeToChat(
      */
     onRejoinState?: (payload: {
       status: string;
+      /** 'chat' | 'call', when the server reports it — the call layout keys off this too, not only the REST read. */
+      channel?: string;
       paused: boolean;
       pausedSince: string | null;
       package?: PackageView;
@@ -303,6 +307,7 @@ export function subscribeToChat(
       .then(state => {
         handlers.onRejoinState?.({
           status: state.status,
+          channel: state.channel,
           paused: state.paused,
           pausedSince: state.pausedSince,
           package: state.package,

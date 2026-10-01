@@ -52,6 +52,61 @@ jest.mock('./src/services/auth', () => ({
   signOut: jest.fn(async () => {}),
 }));
 
+/**
+ * No Agora native module in a test run. The real package constructs a
+ * NativeEventEmitter over its native binding at import time, which throws
+ * without one — so the whole module is replaced with an engine whose every
+ * call succeeds and never fires an event, plus the enum members
+ * services/voiceCall.ts reads.
+ */
+jest.mock('react-native-agora', () => {
+  const engine = {
+    initialize: jest.fn(() => 0),
+    enableAudio: jest.fn(() => 0),
+    setDefaultAudioRouteToSpeakerphone: jest.fn(() => 0),
+    registerEventHandler: jest.fn(() => true),
+    unregisterEventHandler: jest.fn(() => true),
+    joinChannel: jest.fn(() => 0),
+    leaveChannel: jest.fn(() => 0),
+    muteLocalAudioStream: jest.fn(() => 0),
+    setEnableSpeakerphone: jest.fn(() => 0),
+    renewToken: jest.fn(() => 0),
+    release: jest.fn(),
+  };
+  return {
+    createAgoraRtcEngine: () => engine,
+    ChannelProfileType: { ChannelProfileCommunication: 0 },
+    ClientRoleType: { ClientRoleBroadcaster: 1 },
+    ConnectionStateType: {
+      ConnectionStateDisconnected: 1,
+      ConnectionStateConnecting: 2,
+      ConnectionStateConnected: 3,
+      ConnectionStateReconnecting: 4,
+      ConnectionStateFailed: 5,
+    },
+    ConnectionChangedReasonType: {
+      ConnectionChangedInvalidToken: 8,
+      ConnectionChangedTokenExpired: 9,
+      ConnectionChangedRejoinSuccess: 15,
+    },
+  };
+});
+
+/**
+ * No Firebase in a test run. `@react-native-firebase/app` is only ever reached
+ * through messaging, so a bare stub is enough for it.
+ */
+jest.mock('@react-native-firebase/app', () => ({
+  __esModule: true,
+  getApp: jest.fn(() => ({ name: '[DEFAULT]' })),
+}));
+
+/**
+ * A device that grants permission and has a token; the stub (and how a test
+ * delivers a push through it) lives beside the tests.
+ */
+jest.mock('@react-native-firebase/messaging', () => require('./__tests__/helpers/firebaseMessagingMock'));
+
 /** No native keystore in a test run; hold the session in memory instead. */
 jest.mock('react-native-keychain', () => {
   const store = new Map();

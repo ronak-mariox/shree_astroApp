@@ -67,6 +67,8 @@ type DashboardScreenProps = {
   onBankDetails?: () => void;
   onDocuments?: () => void;
   onLogout?: () => void;
+  /** Changes when a push notification says something may have moved; the figures and the request queue are read again. */
+  refreshKey?: number;
 };
 
 /**
@@ -88,6 +90,7 @@ export function DashboardScreen({
   onBankDetails,
   onDocuments,
   onLogout,
+  refreshKey,
 }: DashboardScreenProps) {
   const insets = useSafeAreaInsets();
   const { px, contentWidth, isTablet } = useResponsive();
@@ -98,11 +101,12 @@ export function DashboardScreen({
   const { profile } = useAppData();
 
   /** Everything the screen prints, in one call. */
-  const dashboard = useApi(() => api.fetchDashboard(), []);
+  const dashboard = useApi(() => api.fetchDashboard(), [refreshKey]);
   /** The queue behind the incoming-request popup — live, via the account's socket room. */
   const { requests, reviewing, setReviewing, answer } = useIncomingRequests({
     onAccepted: onAcceptRequest,
     onSettled: dashboard.reload,
+    refreshKey,
   });
 
   /**

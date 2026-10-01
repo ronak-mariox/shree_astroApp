@@ -18,6 +18,8 @@ type ConsultScreenProps = {
   onSelectTab?: (tab: TabKey) => void;
   /** Taking a request opens the consultation. */
   onAcceptRequest?: (request: ConsultationRequest) => void;
+  /** Changes when a push notification says the requests may have moved; both lists are read again. */
+  refreshKey?: number;
 };
 
 /**
@@ -29,6 +31,7 @@ export function ConsultScreen({
   activeTab = 'consult',
   onSelectTab,
   onAcceptRequest,
+  refreshKey,
 }: ConsultScreenProps) {
   const insets = useSafeAreaInsets();
   const { px, contentWidth, isTablet } = useResponsive();
@@ -40,9 +43,10 @@ export function ConsultScreen({
   /** The queue, live via the account's socket room. */
   const { requests, reviewing, setReviewing, answer } = useIncomingRequests({
     onAccepted: onAcceptRequest,
+    refreshKey,
   });
   /** Requests that were never answered — the "missed" list. */
-  const missed = useApi(() => api.fetchConsultations('missed'), []);
+  const missed = useApi(() => api.fetchConsultations('missed'), [refreshKey]);
 
   const missedCalls = requestsFromApi(
     (missed.data ?? []).map((row: any) => ({

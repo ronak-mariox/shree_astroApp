@@ -13,13 +13,15 @@
  * card far more often than they have a PDF of it on the phone.
  */
 
-import { ActionSheetIOS, Alert, Platform } from 'react-native';
+import { ActionSheetIOS, Platform } from 'react-native';
 import {
   launchCamera,
   launchImageLibrary,
   type ImagePickerResponse,
   type OptionsCommon,
 } from 'react-native-image-picker';
+
+import { showDialog } from '../components/AppDialog';
 
 /** What the upload needs: React Native streams the file from the uri itself. */
 export type PickedFile = {
@@ -53,7 +55,11 @@ const IMAGE_OPTIONS: OptionsCommon = {
 
 type Source = 'camera' | 'gallery';
 
-/** Asks where the file should come from, using each platform's own chooser. */
+/**
+ * Asks where the file should come from: iOS's own action sheet, and on Android
+ * the app's dialog (through the imperative bridge, since this is a service
+ * with no React tree of its own). Tapping away answers "neither".
+ */
 function askForSource(kind: PickKind): Promise<Source | undefined> {
   const title = TITLES[kind];
 
@@ -70,16 +76,18 @@ function askForSource(kind: PickKind): Promise<Source | undefined> {
       return;
     }
 
-    Alert.alert(
+    showDialog({
       title,
-      'Where would you like to get it from?',
-      [
-        { text: 'Take Photo', onPress: () => resolve('camera') },
-        { text: 'Choose from Gallery', onPress: () => resolve('gallery') },
-        { text: 'Cancel', style: 'cancel', onPress: () => resolve(undefined) },
+      message: 'Where would you like to get it from?',
+      tone: 'info',
+      actions: [
+        { label: 'Take Photo', variant: 'primary', onPress: () => resolve('camera') },
+        { label: 'Choose from Gallery', variant: 'secondary', onPress: () => resolve('gallery') },
+        { label: 'Cancel', variant: 'secondary', onPress: () => resolve(undefined) },
       ],
-      { cancelable: true, onDismiss: () => resolve(undefined) },
-    );
+      dismissable: true,
+      onDismiss: () => resolve(undefined),
+    });
   });
 }
 
@@ -136,7 +144,7 @@ export async function pickFile(kind: PickKind): Promise<PickedFile | null> {
      * go unhandled, and the tap would look like it did nothing.
      */
     console.error('[filePicker] could not open the picker:', error);
-    Alert.alert(TITLES[kind], unavailableMessage(error));
+    showDialog({ title: TITLES[kind], message: unavailableMessage(error), tone: 'error' });
     return null;
   }
 
@@ -146,7 +154,7 @@ export async function pickFile(kind: PickKind): Promise<PickedFile | null> {
   }
 
   if (response.errorCode) {
-    Alert.alert(TITLES[kind], messageFor(response));
+    showDialog({ title: TITLES[kind], message: messageFor(response), tone: 'error' });
     return null;
   }
 

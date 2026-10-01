@@ -181,7 +181,7 @@ test('withdraw starts on ₹5,000 and presets rewrite the amount', async () => {
   expect(text).toContain(payout.bankName);
   expect(text).toContain(`••••${payout.accountNumber.slice(-4)}`);
   expect(text).toContain(payout.ifsc);
-  expect(text).toContain('Settlement within 24 hours.');
+  expect(text).toContain('Approval within 24 hours');
 
   const field = () => tree.root.findByType(TextInput);
   expect(field().props.value).toBe('5000');
@@ -205,18 +205,18 @@ test('withdraw starts on ₹5,000 and presets rewrite the amount', async () => {
   expect(onConfirm).toHaveBeenCalledWith('10000');
 });
 
-test('withdraw below the ₹500 floor keeps the CTA inert', async () => {
+test('withdraw below the platform minimum (₹100 from settings) keeps the CTA inert', async () => {
   const tree = await render(<WithdrawMoneyScreen />);
   const cta = () => tree.root.findByType(PrimaryButton);
   expect(cta().props.disabled).toBe(false);
 
   await act(() => {
-    tree.root.findByType(TextInput).props.onChangeText('499');
+    tree.root.findByType(TextInput).props.onChangeText('99');
   });
   expect(cta().props.disabled).toBe(true);
 
   await act(() => {
-    tree.root.findByType(TextInput).props.onChangeText('500');
+    tree.root.findByType(TextInput).props.onChangeText('100');
   });
   expect(cta().props.disabled).toBe(false);
 });
@@ -228,8 +228,9 @@ test('the withdrawal confirmation prints the requested amount', async () => {
   );
   const text = textOf(tree);
 
-  expect(text).toContain('Request Successfully');
-  expect(text).toContain('processed');
+  expect(text).toContain('Request');
+  expect(text).toContain('submitted');
+  expect(text).toContain('wait up to 24 hours for admin approval');
   expect(text).toContain('₹5,000 will be credited to your bank account');
   expect(text).toContain('Back to Wallet');
 

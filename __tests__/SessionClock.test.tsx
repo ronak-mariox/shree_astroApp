@@ -9,6 +9,8 @@ import React from 'react';
 import ReactTestRenderer from 'react-test-renderer';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
+import { AppDialogProvider } from '../src/components/AppDialogProvider';
+
 import { ConsultationChatScreen } from '../src/screens/ConsultationChatScreen';
 import * as api from '../src/services/api';
 import { clockOffsetMs, elapsedSeconds, formatClock, secondsUntil } from '../src/utils/sessionClock';
@@ -36,7 +38,9 @@ const mounted: ReactTestRenderer.ReactTestRenderer[] = [];
 const render = async (element: React.ReactElement) => {
   let tree!: ReactTestRenderer.ReactTestRenderer;
   await ReactTestRenderer.act(() => {
-    tree = ReactTestRenderer.create(<SafeAreaProvider initialMetrics={METRICS}>{element}</SafeAreaProvider>);
+    tree = ReactTestRenderer.create(<SafeAreaProvider initialMetrics={METRICS}>
+        <AppDialogProvider>{element}</AppDialogProvider>
+      </SafeAreaProvider>);
   });
   mounted.push(tree);
   await ReactTestRenderer.act(async () => {

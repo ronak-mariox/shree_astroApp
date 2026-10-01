@@ -24,6 +24,8 @@ type WalletScreenProps = {
   activeTab?: TabKey;
   onSelectTab?: (tab: TabKey) => void;
   onWithdraw?: () => void;
+  /** Changes when a push notification says something may have moved (earnings credited, a payout settled); the wallet is read again. */
+  refreshKey?: number;
 };
 
 /**
@@ -35,9 +37,10 @@ export function WalletScreen({
   activeTab = 'wallet',
   onSelectTab,
   onWithdraw,
+  refreshKey,
 }: WalletScreenProps) {
   /** The header figures and the ledger, both read from the server. */
-  const wallet = useApi(() => fetchWallet(), []);
+  const wallet = useApi(() => fetchWallet(), [refreshKey]);
   const balance = wallet.data?.balance;
   const transactions = wallet.data?.transactions ?? [];
 

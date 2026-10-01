@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Alert,
   Animated,
   BackHandler,
   KeyboardAvoidingView,
@@ -11,16 +10,26 @@ import {
   View,
 } from 'react-native';
 
+import { useDialog } from '../components/AppDialogProvider';
 import { ChatBubble, type ChatMessage } from '../components/ChatBubble';
 import { ChatComposer } from '../components/ChatComposer';
 import { ChatHeader } from '../components/ChatHeader';
 import { GenerateKundliSheet } from '../components/GenerateKundliSheet';
 import { KundliDetailsSheet } from '../components/KundliDetailsSheet';
 import { LeaveChatDialog } from '../components/LeaveChatDialog';
+import { VoiceCallPanel } from '../components/VoiceCallPanel';
 import { useApi } from '../hooks/useApi';
 import { useKeyboardOpen } from '../hooks/useKeyboardOpen';
 import { useResponsive } from '../hooks/useResponsive';
 import * as api from '../services/api';
+import {
+  joinVoiceCall,
+  leaveVoiceCall,
+  renewVoiceToken,
+  setMuted as setVoiceMuted,
+  setSpeaker as setVoiceSpeaker,
+  type VoiceCallEvent,
+} from '../services/voiceCall';
 import {
   canGenerateKundli,
   draftFromBirthDetails,
@@ -52,7 +61,37 @@ type ConsultationChatScreenProps = {
    * session's real recorded length instead of ticking off `startedAt`.
    */
   readOnly?: boolean;
+  /**
+   * What the caller already knows the session to be — the accepted request's
+   * channel, or which history list it was opened from. Only a hint for the
+   * first render: the session state (REST read, then every (re)join) is what
+   * decides, and a `call` session gets the voice-call layout in place of the
+   * transcript and composer.
+   */
+  channel?: 'chat' | 'call';
 };
+
+/** Where the voice call stands, as the status line reads it. */
+type CallPhase = 'idle' | 'connecting' | 'ringing' | 'connected' | 'reconnecting';
+
+/**
+ * What the status line says when GET /chats/:id/call-token refuses. The
+ * server's stable `code` is what to branch on; its prose message is the
+ * fallback, since it is already safe to print.
+ */
+function callTokenError(error: unknown): string {
+  const code = (error as { code?: string } | null)?.code;
+  switch (code) {
+    case 'calls_unconfigured':
+      return 'Voice calls are not set up on the server yet';
+    case 'not_active':
+      return 'The session is not active yet';
+    case 'not_a_call':
+      return 'This session is not a voice call';
+    default:
+      return error instanceof Error && error.message ? error.message : 'Could not set up the call';
+  }
+}
 
 /** Stamps a new message with the current wall clock, as the transcript prints it. */
 const timeNow = () =>
@@ -131,9 +170,11 @@ export function ConsultationChatScreen({
   peerName = 'Seeker',
   onLeave,
   readOnly = false,
+  channel: channelHint,
 }: ConsultationChatScreenProps) {
   const { contentWidth, isTablet } = useResponsive();
   const styles = useMemo(() => createStyles(contentWidth, isTablet), [contentWidth, isTablet]);
+  const dialog = useDialog();
 
   /** Status, the frozen rate, and the server's own startedAt — what the header's running clock ticks from. */
   const state = useApi(
@@ -256,6 +297,179 @@ export function ConsultationChatScreen({
     return () => clearInterval(timer);
   }, [state.data?.startedAt, state.data?.endedAt, readOnly]);
 
+  /* ------------------------------------------------------------ voice call */
+
+  /**
+   * A `call` session gets the voice layout in place of the transcript. The
+   * REST state is the source of truth; every (re)join reports it too
+   * (`liveChannel`), and `channelHint` is what App passed from the accepted
+   * request, so the right layout shows before either has answered.
+   */
+  const [liveChannel, setLiveChannel] = useState<string | undefined>(undefined);
+  const channel = state.data?.channel ?? liveChannel ?? channelHint;
+  const isCall = channel === 'call';
+
+  const [callPhase, setCallPhase] = useState<CallPhase>('idle');
+  /** Whether the seeker is in the Agora channel right now — a ref, since the engine's callbacks read it, not the render. */
+  const peerPresent = useRef(false);
+  /** …and whether they ever were: a drop-off reads differently from never having answered. */
+  const [peerEverJoined, setPeerEverJoined] = useState(false);
+  /** Why the call could not be set up — the token call refusing, a denied microphone, an engine error. Shown with a Retry. */
+  const [callError, setCallError] = useState<string | null>(null);
+  /** Bumped by Retry: re-runs the join effect from the token fetch. */
+  const [callAttempt, setCallAttempt] = useState(0);
+  /** The astrologer's own mute — separate from a billing pause, which mutes underneath it and unmutes back to this. */
+  const [muted, setMutedState] = useState(false);
+  const [speakerOn, setSpeakerOn] = useState(false);
+  /** The session ended (either side, or the server) — the channel is left and never rejoined. */
+  const [callEnded, setCallEnded] = useState(false);
+
+  /** Always the latest closure, so the engine's callbacks (registered once, at join) see current state. */
+  const onCallEvent = useRef<(event: VoiceCallEvent) => void>(() => {});
+  onCallEvent.current = (event: VoiceCallEvent) => {
+    switch (event.type) {
+      case 'joined':
+        setCallPhase(peerPresent.current ? 'connected' : 'ringing');
+        break;
+      case 'peerJoined':
+        peerPresent.current = true;
+        setPeerEverJoined(true);
+        setCallPhase('connected');
+        break;
+      case 'peerLeft':
+        peerPresent.current = false;
+        setCallPhase('ringing');
+        break;
+      case 'reconnecting':
+        setCallPhase('reconnecting');
+        break;
+      case 'reconnected':
+        setCallPhase(peerPresent.current ? 'connected' : 'ringing');
+        break;
+      case 'tokenExpiring':
+        /** A fresh token from the same endpoint, handed to the engine in place. */
+        if (chatId) {
+          api
+            .fetchCallToken(chatId)
+            .then(fresh => renewVoiceToken(fresh.token))
+            .catch(() => {
+              /** The SDK asks again before giving up; a session that ended meanwhile has ended the call with it. */
+            });
+        }
+        break;
+      case 'permissionDenied':
+        setCallError('Microphone access is needed for a voice call. Allow it in Settings and retry.');
+        setCallPhase('idle');
+        break;
+      case 'error':
+        setCallError(event.message ? `${event.message} (${event.code})` : `Call error ${event.code}`);
+        break;
+    }
+  };
+
+  const sessionActive = state.data?.status === 'active';
+  /**
+   * Joins Agora only once the session is active AND the token call has
+   * answered — and leaves exactly once, whichever comes first: the session
+   * ending (`callEnded`), the astrologer ending it, a Retry, or this screen
+   * unmounting. `leaveVoiceCall` is idempotent, so the cleanup here and the
+   * explicit calls elsewhere never double-leave.
+   */
+  useEffect(() => {
+    if (!isCall || readOnly || !chatId || !sessionActive || callEnded) {
+      return;
+    }
+    let cancelled = false;
+    /** A fresh join: whoever was in the previous channel is not in this one until the engine says so. */
+    peerPresent.current = false;
+    setCallError(null);
+    setCallPhase('connecting');
+
+    (async () => {
+      let token: api.CallToken;
+      try {
+        token = await api.fetchCallToken(chatId);
+      } catch (error) {
+        if (!cancelled) {
+          setCallError(callTokenError(error));
+          setCallPhase('idle');
+        }
+        return;
+      }
+      if (cancelled) {
+        return;
+      }
+      /** Dummy mode, or a server without Agora credentials: nothing to join. */
+      if (!token.appId) {
+        setCallError('Calls need a live server');
+        setCallPhase('idle');
+        return;
+      }
+      await joinVoiceCall({
+        appId: token.appId,
+        channelName: token.channelName,
+        uid: token.uid,
+        token: token.token,
+        onEvent: event => {
+          if (!cancelled) {
+            onCallEvent.current(event);
+          }
+        },
+      });
+      if (cancelled) {
+        leaveVoiceCall();
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      leaveVoiceCall();
+    };
+  }, [isCall, readOnly, chatId, sessionActive, callEnded, callAttempt]);
+
+  /**
+   * While a call is live, re-read the session every 15s: a socket that was
+   * down when the server ended it (the seeker's End, their disconnect grace
+   * running out, a timeout) never gets `session:ended`, and the audio would
+   * otherwise carry on with nobody being billed.
+   */
+  useEffect(() => {
+    if (!isCall || readOnly || !chatId || !sessionActive || callEnded) {
+      return undefined;
+    }
+    const timer = setInterval(async () => {
+      try {
+        const fresh = await api.getChatState(chatId);
+        if (fresh && fresh.status !== 'active') {
+          finishSession.current();
+        }
+      } catch {
+        /** Offline right now — the next tick, or the socket's own event, will say. */
+      }
+    }, 15_000);
+    return () => clearInterval(timer);
+  }, [isCall, readOnly, chatId, sessionActive, callEnded]);
+
+  /**
+   * A billing pause (low balance, or a package awaiting the seeker's choice)
+   * mutes the microphone underneath the astrologer's own toggle; the resume
+   * restores whatever they had. Re-applied on every phase change so a
+   * (re)join picks it up too.
+   */
+  useEffect(() => {
+    if (!isCall) {
+      return;
+    }
+    setVoiceMuted(sessionPaused || muted);
+  }, [isCall, sessionPaused, muted, callPhase]);
+
+  useEffect(() => {
+    if (!isCall) {
+      return;
+    }
+    setVoiceSpeaker(speakerOn);
+  }, [isCall, speakerOn, callPhase]);
+
   /**
    * Turns one stored message into the bubble the screen draws.
    *
@@ -287,6 +501,23 @@ export function ConsultationChatScreen({
    * the session ends drops the screen straight back out — it is already over
    * by the time this fires, so there is nothing left here to confirm.
    */
+  /**
+   * Closes the session on this side, once: out of the voice channel first,
+   * then the ended state and the screen going away — whichever way the end
+   * was learnt (`session:ended`, a rejoin, the poll below).
+   */
+  const endedHandled = useRef(false);
+  const finishSession = useRef<() => void>(() => {});
+  finishSession.current = () => {
+    if (endedHandled.current) {
+      return;
+    }
+    endedHandled.current = true;
+    leaveVoiceCall();
+    setCallEnded(true);
+    onLeave?.();
+  };
+
   useEffect(() => {
     /** A past consultation has nothing left to live-update — its meter, its balance, its ending, all already happened. */
     if (!chatId || readOnly) {
@@ -312,8 +543,17 @@ export function ConsultationChatScreen({
        * reconnects.
        */
       onRejoinState: payload => {
+        /** Already over by the time the socket came back: close here too, so the call audio never outlives the session. */
+        if (payload.status && payload.status !== 'active' && payload.status !== 'requested') {
+          finishSession.current();
+          return;
+        }
         if (payload.serverTime) {
           clockOffset.current = clockOffsetMs(payload.serverTime);
+        }
+        /** The join reports the channel too — the call layout keys off it as much as off the REST read. */
+        if (payload.channel) {
+          setLiveChannel(payload.channel);
         }
         /** Away-ness is as missable as a pause: recover the true current answer. */
         setUserAwayEndsAt(
@@ -378,7 +618,7 @@ export function ConsultationChatScreen({
         setPkg(current => ({ ...(current ?? {}), phase: 'per_minute', perMinuteStartedAt: payload.perMinuteStartedAt, awaitingChoiceSince: undefined }));
         setSessionPaused(false);
       },
-      onEnded: () => onLeave?.(),
+      onEnded: () => finishSession.current(),
     });
     // transcript.reload and onLeave are fresh closures every render; only chatId/readOnly should restart the subscription.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -496,7 +736,11 @@ export function ConsultationChatScreen({
     setKundliFor(details.name.trim() || kundliName);
 
     if (!chatId || !canGenerateKundli(details)) {
-      Alert.alert('Birth details needed', 'Fill in the name, date, time and place of birth to generate a kundli.');
+      dialog.show({
+        title: 'Birth details needed',
+        message: 'Fill in the name, date, time and place of birth to generate a kundli.',
+        tone: 'warning',
+      });
       return;
     }
 
@@ -504,10 +748,11 @@ export function ConsultationChatScreen({
     try {
       setGeneratedKundli(await api.generateSeekerKundli(chatId, toKundliRequest(details)));
     } catch (error) {
-      Alert.alert(
-        'Could not generate the kundli',
-        error instanceof Error ? error.message : 'Please try again in a moment.',
-      );
+      dialog.show({
+        title: 'Could not generate the kundli',
+        message: error instanceof Error ? error.message : 'Please try again in a moment.',
+        tone: 'error',
+      });
     } finally {
       setGeneratingKundli(false);
     }
@@ -553,23 +798,82 @@ export function ConsultationChatScreen({
   /** Counted off the same 1s tick the header clock runs on, so it needs no timer of its own. */
   const userAwaySecondsLeft = userAwayEndsAt ? secondsUntil(userAwayEndsAt, clockOffset.current) : 0;
 
+  /** The header's running clock — and, on a call, the panel's, so both read the same. */
+  const headerElapsed =
+    !readOnly && pkg?.phase === 'awaiting_choice'
+      ? 'Paused'
+      : !readOnly && pkg?.phase === 'package'
+        ? `${formatClock(packageSecondsLeft)} left`
+        : elapsedLabel(elapsedSeconds);
+
+  /** One line under the seeker's name on a call, in the order that matters: over, broken, paused, then how the channel is doing. */
+  const callStatus = ((): string => {
+    if (readOnly || callEnded || state.data?.status === 'ended') {
+      return 'Call ended';
+    }
+    if (callError) {
+      return callError;
+    }
+    if (sessionPaused) {
+      return pkg?.phase === 'awaiting_choice'
+        ? 'Paused — seeker is choosing how to continue'
+        : 'Paused — seeker is adding money';
+    }
+    switch (callPhase) {
+      case 'connected':
+        return 'Connected';
+      case 'reconnecting':
+        return 'Reconnecting…';
+      case 'ringing':
+        return peerEverJoined
+          ? `${peerName} dropped off — waiting for them to rejoin…`
+          : `Ringing… waiting for ${peerName}`;
+      default:
+        return 'Connecting…';
+    }
+  })();
+
+  /** The seeker's app going away, said on the call panel the way the chat banner says it. */
+  const callAwayNote =
+    !readOnly && userAwayEndsAt
+      ? userAwaySecondsLeft > 0
+        ? `Seeker's app has closed — the consultation ends in ${userAwaySecondsLeft}s unless they come back.`
+        : "Seeker's app has closed — ending the consultation now…"
+      : undefined;
+
   return (
     <View style={styles.screen}>
       <StatusBar barStyle="dark-content" />
 
       <ChatHeader
         name={peerName}
-        elapsed={
-          !readOnly && pkg?.phase === 'awaiting_choice'
-            ? 'Paused'
-            : !readOnly && pkg?.phase === 'package'
-              ? `${formatClock(packageSecondsLeft)} left`
-              : elapsedLabel(elapsedSeconds)
-        }
+        elapsed={headerElapsed}
         onOpenKundli={openSavedKundli}
         onLeave={() => (readOnly ? onLeave?.() : setLeaving(true))}
       />
 
+      {/**
+        * A call: the seeker, how the call is going, the same clock the header
+        * runs, and the three controls — in place of the transcript and
+        * composer. Billing, pauses, packages and the ending all run exactly as
+        * they do for a chat; only what is drawn differs.
+        */}
+      {isCall ? (
+        <VoiceCallPanel
+          peerName={peerName}
+          status={callStatus}
+          timer={headerElapsed}
+          rate={state.data?.ratePerMinute ? `₹ ${state.data.ratePerMinute}/min` : undefined}
+          note={callAwayNote}
+          muted={muted}
+          speakerOn={speakerOn}
+          onToggleMute={() => setMutedState(current => !current)}
+          onToggleSpeaker={() => setSpeakerOn(current => !current)}
+          onEnd={() => (readOnly ? onLeave?.() : setLeaving(true))}
+          onRetry={callError && !callEnded ? () => setCallAttempt(current => current + 1) : undefined}
+          ended={readOnly || callEnded}
+        />
+      ) : (
       <KeyboardAvoidingView
         /** 'padding' on Android too — edge-to-edge ignores adjustResize, see hooks/useKeyboardOpen.ts. */
         behavior="padding"
@@ -634,6 +938,7 @@ export function ConsultationChatScreen({
           />
         )}
       </KeyboardAvoidingView>
+      )}
 
       <GenerateKundliSheet
         visible={generating}
@@ -662,9 +967,13 @@ export function ConsultationChatScreen({
 
       <LeaveChatDialog
         visible={leaving}
+        variant={isCall ? 'call' : 'chat'}
         onStay={() => setLeaving(false)}
         onLeave={() => {
           setLeaving(false);
+          /** Out of the voice channel first — a no-op for a chat, or a call already left. */
+          leaveVoiceCall();
+          setCallEnded(true);
           if (chatId) {
             /** Fire-and-forget — the astrologer is leaving either way; a refusal here just means the server ends it on its own grace-period cutoff instead. */
             api.endConsultation(chatId, 'astrologer_ended').catch(() => {});

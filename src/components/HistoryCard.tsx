@@ -4,14 +4,14 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import type { HistoryEntry } from '../data/history';
 import { colors, radius, typography } from '../theme';
 
-const ACTION_WIDTH = 111;
+const ACTION_GAP = 12;
 const ACTION_HEIGHT = 28;
 const ACTION_RADIUS = 22;
 
 type HistoryCardProps = {
   entry: HistoryEntry;
-  /** The first action is "Chat" on the chat history and "Audio" on the call one. */
-  primaryAction: string;
+  /** The first action — "Chat" on the chat history (opens the transcript). Left out on the call history, which has nothing to open. */
+  primaryAction?: string;
   onPrimary?: () => void;
   onRefund?: () => void;
   onBlock?: () => void;
@@ -38,7 +38,7 @@ export function HistoryCard({
       <Row label="Refund Date" value={entry.refundDate} strong />
 
       <View style={styles.actions}>
-        <Action label={primaryAction} onPress={onPrimary} />
+        {primaryAction ? <Action label={primaryAction} onPress={onPrimary} /> : null}
         <Action label="Refund" tone="credit" onPress={onRefund} />
         <Action label="Block" tone="block" onPress={onBlock} />
       </View>
@@ -139,13 +139,14 @@ const styles = StyleSheet.create({
     ...typography.historyValueStrong,
     color: colors.history.credit,
   },
+  /** The pills share the row equally — two or three of them, no gap left over. */
   actions: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    gap: ACTION_GAP,
     paddingTop: 17.3,
   },
   action: {
-    width: ACTION_WIDTH,
+    flex: 1,
     height: ACTION_HEIGHT,
     borderRadius: ACTION_RADIUS,
     borderWidth: 1,

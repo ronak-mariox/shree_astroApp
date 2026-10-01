@@ -23,9 +23,15 @@ export function useIncomingRequests(options: {
   onAccepted?: (request: ConsultationRequest) => void;
   /** Anything else the caller reloads alongside the queue once a request is answered (the dashboard's own pendingRequests count, say). */
   onSettled?: () => void | Promise<void>;
+  /**
+   * Changes when something outside the socket says the queue may have moved —
+   * a push notification arriving or being tapped (App.tsx). The queue is read
+   * again, which is what shows a request the socket was not connected to hear.
+   */
+  refreshKey?: number;
 } = {}) {
-  const { onAccepted, onSettled } = options;
-  const queue = useApi(() => api.fetchRequests(), []);
+  const { onAccepted, onSettled, refreshKey } = options;
+  const queue = useApi(() => api.fetchRequests(), [refreshKey]);
   const [reviewing, setReviewing] = useState<ConsultationRequest | null>(null);
 
   useEffect(

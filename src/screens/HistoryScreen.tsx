@@ -1,6 +1,5 @@
 import React, { useMemo, useState } from 'react';
 import {
-  Alert,
   Pressable,
   ScrollView,
   StatusBar,
@@ -11,6 +10,8 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import type { DialogRequest } from '../components/AppDialog';
+import { useDialog } from '../components/AppDialogProvider';
 import { HistoryCard } from '../components/HistoryCard';
 import { ChevronSolidIcon } from '../components/icons/ChatIcons';
 import { SearchIcon } from '../components/icons/SearchIcon';
@@ -33,16 +34,20 @@ const TITLES: Record<HistoryVariant, string> = {
   call: 'Call History',
 };
 
-/** Figma labels the first pill "Chat" here and "Audio" on the call screen. */
-const PRIMARY_ACTIONS: Record<HistoryVariant, string> = {
+/**
+ * The first pill: "Chat" opens the past transcript. The call history has no
+ * such pill — Figma drew an "Audio" one there, but a voice consultation
+ * leaves nothing to play back, so the user asked for it to go.
+ */
+const PRIMARY_ACTIONS: Record<HistoryVariant, string | undefined> = {
   chat: 'Chat',
-  call: 'Audio',
+  call: undefined,
 };
 
 type HistoryScreenProps = {
   variant: HistoryVariant;
   onBack?: () => void;
-  /** Opens the past consultation's own transcript — the "Chat"/"Audio" pill on a card. */
+  /** Opens the past consultation's own transcript — the "Chat" pill on a card. */
   onSelect?: (chatId: string, userName: string) => void;
 };
 
@@ -58,35 +63,41 @@ type HistoryScreenProps = {
  * Support's dispute form) naming the consultation, instead of doing nothing.
  */
 function askSupport(
+  show: (request: DialogRequest) => void,
   entry: { id: string; userName: string; amount?: string; dateTime?: string },
   kind: 'refund' | 'block',
 ) {
   const refund = kind === 'refund';
   const what = refund ? `Refund ${entry.userName}` : `Block ${entry.userName}`;
-  Alert.alert(
-    refund ? 'Request a refund?' : 'Block this seeker?',
-    refund
+  show({
+    title: refund ? 'Request a refund?' : 'Block this seeker?',
+    message: refund
       ? `Support will review and refund ${entry.userName} for this consultation${entry.amount ? ` (${entry.amount})` : ''}.`
       : `Support will review and stop ${entry.userName} from sending you further requests.`,
-    [
-      { text: 'Cancel', style: 'cancel' },
+    tone: refund ? 'info' : 'error',
+    actions: [
+      { label: 'Cancel', variant: 'secondary' },
       {
-        text: refund ? 'Request refund' : 'Request block',
-        style: refund ? 'default' : 'destructive',
+        label: refund ? 'Request refund' : 'Request block',
+        variant: 'primary',
         onPress: async () => {
           try {
             await submitDispute({
               issueType: 'astrologer',
               description: `${what} — consultation ${entry.id}${entry.dateTime ? ` on ${entry.dateTime}` : ''}${entry.amount ? `, ${entry.amount}` : ''}.`,
             });
-            Alert.alert('Request sent', 'Support has your request and will follow up.');
+            show({ title: 'Request sent', message: 'Support has your request and will follow up.', tone: 'success' });
           } catch (error) {
-            Alert.alert('Could not send', error instanceof Error ? error.message : 'Please try again.');
+            show({
+              title: 'Could not send',
+              message: error instanceof Error ? error.message : 'Please try again.',
+              tone: 'error',
+            });
           }
         },
       },
     ],
-  );
+  });
 }
 
 export function HistoryScreen({ variant, onBack, onSelect }: HistoryScreenProps) {
@@ -97,6 +108,7 @@ export function HistoryScreen({ variant, onBack, onSelect }: HistoryScreenProps)
     [px, contentWidth, isTablet],
   );
   const [query, setQuery] = useState('');
+  const dialog = useDialog();
 
   /** Reloads whenever the tab switches between chat and call. */
   const history = useApi(() => fetchHistory(variant), [variant]);
@@ -158,8 +170,8 @@ export function HistoryScreen({ variant, onBack, onSelect }: HistoryScreenProps)
             entry={entry}
             primaryAction={PRIMARY_ACTIONS[variant]}
             onPrimary={() => onSelect?.(entry.id, entry.userName)}
-            onRefund={() => askSupport(entry, 'refund')}
-            onBlock={() => askSupport(entry, 'block')}
+            onRefund={() => askSupport(dialog.show, entry, 'refund')}
+            onBlock={() => askSupport(dialog.show, entry, 'block')}
           />
         ))}
       </ScrollView>
