@@ -16,6 +16,7 @@ import {
   connectSocket,
   disconnectSocket,
   sendChatMessage,
+  sendTyping as sendTypingRaw,
   subscribeToChat,
   subscribeToIncomingRequests as subscribeToIncomingRequestsRaw,
 } from './socket';
@@ -51,7 +52,7 @@ import {
   DUMMY_WALLET,
   DUMMY_WITHDRAWALS,
 } from './dummyData';
-import { USE_DUMMY_CONSULT, USE_DUMMY_DATA, USE_DUMMY_PROFILE } from './dummyMode';
+import { USE_DUMMY_AUTH, USE_DUMMY_CONSULT, USE_DUMMY_DATA, USE_DUMMY_PROFILE } from './dummyMode';
 
 /* -------------------------------------------------------------------------- */
 /* Translating between the API's ids and the screens' words                   */
@@ -695,13 +696,19 @@ export async function fetchDashboard(): Promise<Dashboard> {
 }
 
 /**
- * PATCH /astrologer/presence — the dashboard's availability toggle.
+ * PATCH /astrologer/me/presence — the dashboard's availability toggle.
  *
- * The backend ties `presence.isOnline` to this very socket's connect/
- * disconnect (see backend/socket/index.js), so the toggle is what opens and
- * closes the live connection: going online opens it, going offline (or the
- * app backgrounding/being killed) closes it and the server marks the
- * astrologer offline on its own.
+ * "Online" is the astrologer's own choice and stays what they chose until
+ * they change it here: the server no longer follows the app's connection, so
+ * closing the app (or the phone dropping off the network) leaves them online
+ * — a request still reaches them as a push notification and opens the Consult
+ * tab. Signing out is the one other thing that switches them off (the server
+ * does that on POST /auth/logout).
+ *
+ * The live socket is separate from availability: going online makes sure it
+ * is open so a request pops up instantly, but going offline does not close
+ * it — a consultation still in progress keeps its connection (closing it
+ * would pause the seeker's billing mid-session).
  */
 export async function setOnline(isOnline: boolean): Promise<boolean> {
   if (USE_DUMMY_DATA) {
@@ -712,8 +719,6 @@ export async function setOnline(isOnline: boolean): Promise<boolean> {
   const confirmed = Boolean(data.presence?.isOnline);
   if (confirmed) {
     connectSocket();
-  } else {
-    disconnectSocket();
   }
   return confirmed;
 }
@@ -836,6 +841,24 @@ export async function fetchSupportContact(): Promise<{ email: string; phone?: st
   }
 }
 
+/**
+ * The platform's minimum payout, from the public GET /settings — the same
+ * figure the server enforces on POST /wallet/withdrawals, so the app never
+ * blocks a request the server would accept (or vice versa). Falls back to the
+ * server's own default when the read fails.
+ */
+export async function fetchMinPayout(): Promise<number> {
+  const fallback = 100;
+  if (USE_DUMMY_DATA) return fallback;
+  try {
+    const { data } = await client.get('/settings');
+    const value = Number(data?.settings?.minPayout ?? data?.minPayout);
+    return Number.isFinite(value) && value > 0 ? value : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 export async function endConsultation(chatId: string, reason?: string) {
   if (USE_DUMMY_CONSULT) return { chatId, status: 'ended', reason };
   const { data } = await client.post(`/chats/${chatId}/end`, { reason });
@@ -877,11 +900,61 @@ export async function getChatState(chatId: string) {
 }
 
 /**
+ * What GET /chats/:chatId/call-token answers — everything the phone needs to
+ * join the session's Agora voice channel. The channel is the chat id itself,
+ * and the two uids are fixed (seeker 1001, astrologer 2001) so either side
+ * knows which remote uid is the other party.
+ */
+export type CallToken = {
+  provider: 'agora';
+  appId: string;
+  channelName: string;
+  uid: number;
+  peerUid: number;
+  role: 'user' | 'astrologer';
+  token: string;
+  /** ISO — when the token stops working; the SDK warns ~30s before, and the screen renews. */
+  expiresAt: string;
+  ttlSeconds: number;
+};
+
+/**
+ * GET /chats/:chatId/call-token — an Agora RTC token for an ACTIVE `call`
+ * session. The server refuses with 400 `not_a_call` for a chat session, 409
+ * `not_active` before accept / after end, and 503 `calls_unconfigured` when
+ * it has no Agora credentials — the call screen shows that message and a
+ * Retry, while billing carries on as before.
+ *
+ * Dummy mode hands back an empty `appId`, which the call panel reads as
+ * "Calls need a live server" rather than trying to join anything.
+ */
+export async function fetchCallToken(chatId: string): Promise<CallToken> {
+  if (USE_DUMMY_CONSULT) {
+    return {
+      provider: 'agora',
+      appId: '',
+      channelName: chatId,
+      uid: 2001,
+      peerUid: 1001,
+      role: 'astrologer',
+      token: '',
+      expiresAt: new Date(Date.now() + 7200 * 1000).toISOString(),
+      ttlSeconds: 7200,
+    };
+  }
+  const { data } = await client.get(`/chats/${chatId}/call-token`);
+  return data as CallToken;
+}
+
+/**
  * Live updates for one open consultation — messages and the end, however it
  * comes (either side, or the server's own grace-period cutoff). Returns the
  * unsubscribe function.
  */
 export const subscribeToConsultation = subscribeToChat;
+
+/** The seeker's screen shows typing dots off this — see socket.ts's sendTyping. */
+export const sendTyping = sendTypingRaw;
 
 /**
  * The incoming-request queue's live half: a new request landing in the
@@ -891,9 +964,9 @@ export const subscribeToConsultation = subscribeToChat;
 export const subscribeToIncomingRequests = subscribeToIncomingRequestsRaw;
 
 /**
- * The live connection's lifecycle — opened and closed by `setOnline` above.
- * Exposed here too as a safety net for sign-out, which must never leave a
- * socket connected once nobody is signed in.
+ * Closes the live connection at sign-out, which must never leave a socket
+ * connected once nobody is signed in. (Availability does not hang off the
+ * socket any more — see `setOnline` above.)
  */
 export const disconnectLiveUpdates = disconnectSocket;
 
@@ -1002,6 +1075,62 @@ export async function markNotificationsRead(notificationId?: string) {
   return data;
 }
 
+/* ------------------------------------------------------- push (FCM devices) */
+
+/** Which kind of device a push token belongs to — the server's own enum. */
+export type DevicePlatform = 'android' | 'ios' | 'web';
+
+/**
+ * Whether there is a real account for a push token to be filed under. On the
+ * fixture switches there is not: no server knows this "astrologer", so there
+ * is nothing to register a device against.
+ */
+const NO_DEVICE_REGISTRY = USE_DUMMY_DATA || USE_DUMMY_AUTH;
+
+/**
+ * Files this device's FCM token under the signed-in account, so the server's
+ * notifications reach its tray (services/push.ts is the only caller). Safe to
+ * repeat: the server keys on the token, refreshes it, and moves it here from
+ * whichever account held it before.
+ */
+export async function registerDevice(fcmToken: string, platform: DevicePlatform, appVersion?: string) {
+  if (NO_DEVICE_REGISTRY) {
+    return { ok: true, devices: 0 };
+  }
+  const { data } = await client.post('/devices', {
+    fcmToken,
+    platform,
+    ...(appVersion ? { appVersion } : null),
+  });
+  return data as { ok: boolean; devices: number };
+}
+
+/** Why a push did not go out to one device — the server's own words, for whoever is debugging a silent phone. */
+export type PushFailureReason = 'not_configured' | 'no_token' | 'invalid_token' | 'provider_error' | 'push_disabled';
+
+/**
+ * Asks the server to send this account a "Test notification" and reports what
+ * happened per registered device, so "nothing arrived" comes with a reason.
+ * No screen calls it yet — it is here for a debug menu, or a breakpoint.
+ */
+export async function sendTestPush() {
+  if (NO_DEVICE_REGISTRY) {
+    return { ok: true, devices: 0, push: [] as Array<{ sent: boolean; reason?: PushFailureReason }> };
+  }
+  const { data } = await client.post('/devices/test');
+  return data as { ok: boolean; devices: number; push: Array<{ sent: boolean; reason?: PushFailureReason }> };
+}
+
+/** Takes the token back off the account — on sign-out, so the next person on this phone does not get this one's pushes. */
+export async function unregisterDevice(fcmToken: string) {
+  if (NO_DEVICE_REGISTRY) {
+    return { ok: true };
+  }
+  /** A DELETE carries its body in axios's `data` option. */
+  const { data } = await client.delete('/devices', { data: { fcmToken } });
+  return data as { ok: boolean };
+}
+
 /** POST /astrologer/submit — hand the application to the admins. */
 export async function submitApplication() {
   if (USE_DUMMY_PROFILE) {
@@ -1024,6 +1153,8 @@ export async function submitApplication() {
  */
 export async function fetchWallet(): Promise<{
   balance: { total: string; today: string; monthly: string; lifetime: string };
+  /** Rupees reserved by withdrawal requests still awaiting admin approval (0 when none). */
+  pendingWithdrawal: number;
   transactions: Array<{
     id: string;
     title: string;
@@ -1032,7 +1163,7 @@ export async function fetchWallet(): Promise<{
     kind: 'credit' | 'withdrawal' | 'fee';
   }>;
 }> {
-  if (USE_DUMMY_DATA) return DUMMY_WALLET;
+  if (USE_DUMMY_DATA) return { pendingWithdrawal: 0, ...DUMMY_WALLET };
 
   const [earnings, ledger] = await Promise.all([
     fetchEarnings(),
@@ -1049,6 +1180,7 @@ export async function fetchWallet(): Promise<{
       monthly: `₹${(earnings.thisMonth ?? 0).toLocaleString('en-IN')}`,
       lifetime: short(earnings.lifetime ?? 0),
     },
+    pendingWithdrawal: Number(earnings.pendingWithdrawal ?? 0),
     transactions: (ledger.data.items ?? []).map((row: any) => ({
       id: String(row._id),
       title: row.title || titleCase(row.type),

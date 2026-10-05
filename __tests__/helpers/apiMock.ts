@@ -491,6 +491,23 @@ export const getChatState = async (chatId: string) => ({
   amountCharged: 0,
 });
 
+/**
+ * GET /chats/:chatId/call-token — no Agora in a test run. An empty `appId` is
+ * exactly what dummy mode hands back too, and the call panel reads it as
+ * "Calls need a live server" rather than trying to join a channel.
+ */
+export const fetchCallToken = jest.fn(async (chatId: string) => ({
+  provider: 'agora' as const,
+  appId: '',
+  channelName: chatId,
+  uid: 2001,
+  peerUid: 1001,
+  role: 'astrologer' as const,
+  token: '',
+  expiresAt: new Date(Date.now() + 7200 * 1000).toISOString(),
+  ttlSeconds: 7200,
+}));
+
 /** The transcript, in the shape the API answers with. */
 /** Messages sent during a test, appended to the transcript like a server. */
 let posted: any[] = [];
@@ -531,6 +548,10 @@ export const fetchEarnings = async () => ({
 });
 
 export const requestWithdrawal = async () => ({});
+/** The withdraw screen reads the platform minimum from settings; tests get the server default. */
+export const fetchMinPayout = async () => 100;
+/** Typing pings are fire-and-forget over the socket; the mock just records them. */
+export const sendTyping = jest.fn();
 export const fetchWithdrawals = async () => [];
 export const fetchNotifications = async () => ({
   items: NOTIFICATIONS,
@@ -538,6 +559,14 @@ export const fetchNotifications = async () => ({
   unread: NOTIFICATIONS.filter(n => n.unread).length,
 });
 export const markNotificationsRead = async () => ({ updated: 1, unread: 0 });
+
+/** services/push.ts files the FCM token through these; a test reads the calls. */
+export const registerDevice = jest.fn(async (_fcmToken: string, _platform: 'android' | 'ios' | 'web', _appVersion?: string) => ({
+  ok: true,
+  devices: 1,
+}));
+export const unregisterDevice = jest.fn(async (_fcmToken: string) => ({ ok: true }));
+export const sendTestPush = jest.fn(async () => ({ ok: true, devices: 1, push: [{ sent: true }] }));
 
 /* -------------------------------------------------------- screen-shaped */
 

@@ -104,7 +104,7 @@ function PopupBody({
             <PhoneIcon size={px(TAG_ICON_SIZE)} color={colors.text.ink} />
           )}
           <Text style={styles.tagLabel}>
-            {isChat ? 'Chat' : 'Voice'} Consultation
+            {isChat ? 'Chat' : 'Voice Call'} Consultation
           </Text>
         </View>
 

@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   Linking,
   Pressable,
   ScrollView,
@@ -12,6 +11,7 @@ import {
   View,
 } from 'react-native';
 
+import { useDialog } from '../components/AppDialogProvider';
 import { BrandGradient } from '../components/BrandGradient';
 import {
   EMAIL_US_COLOR,
@@ -48,6 +48,7 @@ export function HelpSupportScreen({
   onEmailUs,
 }: HelpSupportScreenProps) {
   const { submitDispute, error, clearError } = useAppData();
+  const dialog = useDialog();
   const [issueType, setIssueType] = useState<string | null>(null);
   const [description, setDescription] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -68,7 +69,11 @@ export function HelpSupportScreen({
     try {
       await Linking.openURL(url);
     } catch {
-      Alert.alert('Email us', `Write to ${email} and our team will get back to you.`);
+      dialog.show({
+        title: 'Email us',
+        message: `Write to ${email} and our team will get back to you.`,
+        tone: 'info',
+      });
     }
   };
   const liveChat = async () => {
@@ -81,14 +86,15 @@ export function HelpSupportScreen({
         /* fall through to the message below */
       }
     }
-    Alert.alert(
-      'Live chat',
-      `Live chat isn't available yet. Email ${email}, or raise a dispute below and support will reply.`,
-      [
-        { text: 'OK', style: 'cancel' },
-        { text: 'Email us', onPress: () => { emailSupport(); } },
+    dialog.show({
+      title: 'Live chat',
+      message: `Live chat isn't available yet. Email ${email}, or raise a dispute below and support will reply.`,
+      tone: 'info',
+      actions: [
+        { label: 'OK', variant: 'secondary' },
+        { label: 'Email us', variant: 'primary', onPress: () => { emailSupport(); } },
       ],
-    );
+    });
   };
 
   const submit = async () => {

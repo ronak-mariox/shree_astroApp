@@ -2,6 +2,7 @@ import React from 'react';
 import ReactTestRenderer from 'react-test-renderer';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
+import { AppDialogProvider } from '../../src/components/AppDialogProvider';
 import { AppDataProvider } from '../../src/state/AppDataProvider';
 /** The API is mocked in jest.setup.js; this only resets it between tests. */
 import { resetApiMock } from './apiMock';
@@ -37,7 +38,9 @@ export const render = async (element: React.ReactElement) => {
   await act(async () => {
     tree = ReactTestRenderer.create(
       <SafeAreaProvider initialMetrics={METRICS}>
-        <AppDataProvider>{element}</AppDataProvider>
+        <AppDataProvider>
+          <AppDialogProvider>{element}</AppDialogProvider>
+        </AppDataProvider>
       </SafeAreaProvider>,
     );
   });

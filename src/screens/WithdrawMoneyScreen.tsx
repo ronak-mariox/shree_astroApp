@@ -20,7 +20,7 @@ import {
   WITHDRAW_PRESETS,
 } from '../data/wallet';
 import { useApi } from '../hooks/useApi';
-import { fetchEarnings, fetchBankAccounts, requestWithdrawal } from '../services/api';
+import { fetchEarnings, fetchBankAccounts, fetchMinPayout, requestWithdrawal } from '../services/api';
 import {
   colors,
   hairline,
@@ -33,7 +33,8 @@ const CHEVRON_SIZE = 21.993;
 const NOTE_ICON_SIZE = 9.923;
 const CTA_HEIGHT = 51.998;
 /** Figma's own floor for a withdrawal (Figma node 112:1472). */
-const MINIMUM = 500;
+/** Shown until GET /settings answers with the platform's real minimum payout. */
+const MINIMUM_FALLBACK = 100;
 
 type WithdrawMoneyScreenProps = {
   onBack?: () => void;
@@ -51,8 +52,12 @@ export function WithdrawMoneyScreen({
   /** What is actually withdrawable, and where it would go. */
   const earnings = useApi(() => fetchEarnings(), []);
   const accounts = useApi(() => fetchBankAccounts(), []);
+  /** The server's minimum payout (admin Settings → Platform), so the button and the note agree with what the server enforces. */
+  const minPayout = useApi(() => fetchMinPayout(), []);
+  const minimum = minPayout.data ?? MINIMUM_FALLBACK;
 
-  const available = `₹${Math.round(earnings.data?.balance ?? 0).toLocaleString('en-IN')}`;
+  /** The balance less what earlier, still-pending requests have reserved. */
+  const available = `₹${Math.round(earnings.data?.available ?? earnings.data?.balance ?? 0).toLocaleString('en-IN')}`;
   /** The primary account is the first one on file. */
   const payout = (accounts.data ?? [])[0];
 
@@ -61,7 +66,7 @@ export function WithdrawMoneyScreen({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const isValid = Number(amount || '0') >= MINIMUM;
+  const isValid = Number(amount || '0') >= minimum;
 
   const confirm = async () => {
     if (!isValid || submitting) {
@@ -163,8 +168,7 @@ export function WithdrawMoneyScreen({
           paddingVertical={12.755}
           icon={<InfoCircleSquareIcon size={NOTE_ICON_SIZE} />}
         >
-          Settlement within 24 hours. Min withdrawal ₹500. Platform deducts 10%
-          fee.
+          {`Approval within 24 hours — your balance is deducted only once the admin approves. Min withdrawal ₹${minimum}. Platform deducts 10% fee.`}
         </InfoNote>
 
         {error && <Text style={styles.error}>{error}</Text>}

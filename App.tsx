@@ -4,13 +4,16 @@
  * @format
  */
 
-import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Linking, StyleSheet, View } from 'react-native';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { ActivityIndicator, Linking, StyleSheet, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
+import { AppDialogProvider, useDialog } from './src/components/AppDialogProvider';
 import { AppDataProvider } from './src/state/AppDataProvider';
 import { signOut as endSession, type AuthAstrologer } from './src/services/auth';
 import { disconnectLiveUpdates, fetchSupportContact } from './src/services/api';
+import { routeForAction } from './src/services/notificationRoutes';
+import { disablePush, enablePush, pushActionOf, type PushAction, type PushData, type PushMessage } from './src/services/push';
 import { getSession, onSessionChange, restoreSession } from './src/services/session';
 import { colors } from './src/theme';
 
@@ -104,11 +107,50 @@ const MENU_TABS: Record<string, TabKey | undefined> = {
   earnings: 'wallet',
 };
 
+/**
+ * The signed-in shell: the tabs and every screen pushed over them. A tapped
+ * notification only navigates from one of these — an astrologer who is signed
+ * in but still mid-registration, or waiting on approval, has no dashboard to
+ * be taken to, and stays where they are.
+ */
+const SHELL_ROUTES = new Set<Route>([
+  'dashboard',
+  'consultation',
+  'withdraw',
+  'withdrawDone',
+  'chatHistory',
+  'callHistory',
+  'priceChange',
+  'help',
+  'profile',
+  'profileEdit',
+  'bankAccounts',
+  'documents',
+]);
+
 /** Groups a mobile number the way the OTP screen prints it: 98765 43210. */
 const formatMobile = (digits: string) =>
   digits.length === 10 ? `${digits.slice(0, 5)} ${digits.slice(5)}` : digits;
 
+/**
+ * The providers every screen sits under: safe-area insets, the shared store,
+ * and the one app dialog (last, so it draws over whichever screen is showing).
+ */
 function App() {
+  return (
+    <SafeAreaProvider>
+      <AppDataProvider>
+        <AppDialogProvider>
+          <AppShell />
+        </AppDialogProvider>
+      </AppDataProvider>
+    </SafeAreaProvider>
+  );
+}
+
+/** Which screen is showing, and how each one hands off to the next. */
+function AppShell() {
+  const dialog = useDialog();
   const [route, setRoute] = useState<Route>('restoring');
   /** The code the API returned while there is no SMS provider. */
   const [devCode, setDevCode] = useState<string | undefined>(undefined);
@@ -133,11 +175,37 @@ function App() {
    */
   const [pastConsultation, setPastConsultation] = useState(false);
   const [historyOrigin, setHistoryOrigin] = useState<'chatHistory' | 'callHistory'>('chatHistory');
+  /**
+   * Whether the open consultation is a chat or a voice call — from the
+   * accepted request's channel, or which history list it was opened from.
+   * A hint for the consultation screen's first render only; the session
+   * state it reads is what decides.
+   */
+  const [consultationChannel, setConsultationChannel] = useState<'chat' | 'call'>('chat');
   /** The amount carried through the withdrawal flow, in plain digits. */
   const [withdrawal, setWithdrawal] = useState(WITHDRAW_DEFAULT);
 
   /** Whether the navigation drawer is open over the current tab. */
   const [menuOpen, setMenuOpen] = useState(false);
+
+  /** Who is signed in, if anyone — push notifications follow the account (see the effect further down). */
+  const [signedInId, setSignedInId] = useState<string | undefined>(() => getSession()?.astrologer.id);
+  /**
+   * Bumped whenever a push says something has changed. Nothing in this file
+   * holds the request queue, the wallet or the alerts feed — each tab loads
+   * its own — so this is handed to them as the cue to read again.
+   */
+  const [refreshKey, setRefreshKey] = useState(0);
+  /**
+   * The route as of the latest render, and whether it is a consultation in
+   * progress, for the push handlers below: they are registered once per
+   * sign-in and fire at any later moment, so they read these rather than the
+   * values they closed over.
+   */
+  const routeRef = useRef(route);
+  routeRef.current = route;
+  const liveConsultationRef = useRef(false);
+  liveConsultationRef.current = route === 'consultation' && !pastConsultation;
 
   /**
    * The keystore is read once, at startup, and decides the first screen.
@@ -184,9 +252,17 @@ function App() {
   useEffect(
     () =>
       onSessionChange(session => {
+        setSignedInId(session?.astrologer.id);
         if (!session) {
           /** A signed-out session must never hold a live socket, however it ends. */
           disconnectLiveUpdates();
+          /**
+           * Sign-out has already done this, with the token still valid (see
+           * signOut below) — this is for the session that ended by itself. The
+           * server can no longer be told, but deleting the FCM token here
+           * still stops the previous account's pushes reaching this phone.
+           */
+          disablePush();
           setRoute(current => (current === 'restoring' ? current : 'accountGate'));
         }
       }),
@@ -196,10 +272,105 @@ function App() {
   /** Clears the keystore first, so "signed out" is true before it is drawn. */
   const signOut = async () => {
     disconnectLiveUpdates();
+    /**
+     * Before the session goes: taking this device's push token off the
+     * account is an authenticated call. Best-effort and time-boxed inside
+     * `disablePush`, so it can delay a sign-out but never prevent one.
+     */
+    await disablePush();
     await endSession();
     setTab('home');
     setRoute('accountGate');
   };
+
+  /**
+   * Where a tapped notification leads (services/notificationRoutes.ts has the
+   * table): a new request to the Consult tab, where it is waiting on Accept /
+   * Decline; money to the Wallet tab; anything without a screen of its own to
+   * the Alerts tab, where it is listed.
+   *
+   * Whatever it opens is read afresh. It never leaves a consultation in
+   * progress — the notification is in Alerts either way — and it does nothing
+   * for an astrologer who is not in the signed-in shell yet.
+   */
+  const openNotification = useCallback((action?: PushAction) => {
+    setRefreshKey(key => key + 1);
+    if (!SHELL_ROUTES.has(routeRef.current) || liveConsultationRef.current) {
+      return;
+    }
+    const destination = routeForAction(action);
+    setMenuOpen(false);
+    if (destination.route === 'dashboard') {
+      setTab(destination.tab);
+    }
+    setRoute(destination.route);
+  }, []);
+
+  /** A push tapped in the tray: its `data.action` is JSON ("" when there is none); empty or unreadable means the Alerts tab. */
+  const openPush = useCallback((data: PushData) => openNotification(pushActionOf(data)), [openNotification]);
+
+  /** `show` never changes (see AppDialogProvider), so the handler below is registered once. */
+  const showDialog = dialog.show;
+  const isAnswerPending = dialog.isAnswerPending;
+  /**
+   * A push that arrives with the app open is not drawn by the system, so it
+   * is shown in the app's own dialog — and the open tab is told to read again
+   * either way, which is what lists a request the socket was not connected to
+   * hear. It stays quiet over a consultation in progress, and for consultation
+   * events, which the live socket already presents (the incoming-request
+   * card and its Accept / Decline popup).
+   */
+  const showPush = useCallback(
+    (message: PushMessage) => {
+      setRefreshKey(key => key + 1);
+      if (!message.title && !message.body) {
+        return;
+      }
+      if (liveConsultationRef.current) {
+        return;
+      }
+      if (message.data.type?.startsWith('consultation_')) {
+        return;
+      }
+      /** A confirm or a chooser is open and waiting on an answer — it stays; the alert is in the feed (already refreshed above). */
+      if (isAnswerPending()) {
+        return;
+      }
+      showDialog({
+        title: message.title || 'Notification',
+        message: message.body || undefined,
+        tone: 'info',
+      });
+    },
+    [showDialog, isAnswerPending],
+  );
+
+  /**
+   * Push follows the account: on once someone is signed in — at launch with a
+   * saved session, or the moment a sign-in or registration completes — and
+   * off again in the sign-out path above. Held back until the keystore has
+   * been read, so a tap that launched the app is not routed before the shell
+   * has decided where it starts.
+   */
+  const restoring = route === 'restoring';
+  useEffect(() => {
+    if (!signedInId || restoring) {
+      return;
+    }
+    let live = true;
+    let detach: (() => void) | undefined;
+    enablePush({ onForeground: showPush, onOpen: openPush }).then(unsubscribe => {
+      if (live) {
+        detach = unsubscribe;
+      } else {
+        unsubscribe();
+      }
+    });
+    return () => {
+      live = false;
+      detach?.();
+    };
+  }, [signedInId, restoring, showPush, openPush]);
 
   /** Menu is a drawer rather than a tab, so it opens over whatever is showing. */
   const selectTab = (next: TabKey) => {
@@ -212,7 +383,11 @@ function App() {
 
   /** Social sign-in isn't set up for astrologers yet — say so rather than leave the buttons dead. */
   const socialComingSoon = (provider: 'Google' | 'Apple') =>
-    Alert.alert(`${provider} sign-in`, `${provider} sign-in is coming soon. Please continue with your mobile number.`);
+    dialog.show({
+      title: `${provider} sign-in`,
+      message: `${provider} sign-in is coming soon. Please continue with your mobile number.`,
+      tone: 'info',
+    });
 
   /**
    * "Delete Account" — there is no self-serve deletion on the API, and it
@@ -220,30 +395,35 @@ function App() {
    * confirms and then opens a request to support rather than doing nothing.
    */
   const requestAccountDeletion = () =>
-    Alert.alert(
-      'Delete account?',
-      'This permanently removes your astrologer profile. Our team will verify the request and settle any pending earnings first.',
-      [
-        { text: 'Cancel', style: 'cancel' },
+    dialog.show({
+      title: 'Delete account?',
+      message:
+        'This permanently removes your astrologer profile. Our team will verify the request and settle any pending earnings first.',
+      tone: 'error',
+      actions: [
+        { label: 'Cancel', variant: 'secondary' },
         {
-          text: 'Request deletion',
-          style: 'destructive',
+          label: 'Request deletion',
+          variant: 'primary',
           onPress: async () => {
             const { email } = await fetchSupportContact();
             const subject = encodeURIComponent('Delete my astrologer account');
             try {
               await Linking.openURL(`mailto:${email}?subject=${subject}`);
             } catch {
-              Alert.alert('Request deletion', `Email ${email} from your registered address to delete your account.`);
+              dialog.show({
+                title: 'Request deletion',
+                message: `Email ${email} from your registered address to delete your account.`,
+                tone: 'info',
+              });
             }
           },
         },
       ],
-    );
+    });
 
   return (
-    <SafeAreaProvider>
-      <AppDataProvider>
+    <>
       {/* Held while the keystore is read; see the effect above. */}
       {route === 'restoring' && (
         <View style={styles.splash}>
@@ -301,6 +481,7 @@ function App() {
           onAcceptRequest={request => {
             setSeeker(request.name);
             setChatId(request.id);
+            setConsultationChannel(request.channel === 'voice' ? 'call' : 'chat');
             setPastConsultation(false);
             setRoute('consultation');
           }}
@@ -313,6 +494,7 @@ function App() {
           onBankDetails={() => setRoute('bankAccounts')}
           onDocuments={() => setRoute('documents')}
           onLogout={signOut}
+          refreshKey={refreshKey}
         />
       )}
 
@@ -344,6 +526,7 @@ function App() {
         <ConsultationChatScreen
           chatId={chatId}
           peerName={seeker}
+          channel={consultationChannel}
           readOnly={pastConsultation}
           onLeave={() => setRoute(pastConsultation ? historyOrigin : 'dashboard')}
         />
@@ -356,9 +539,11 @@ function App() {
           onAcceptRequest={request => {
             setSeeker(request.name);
             setChatId(request.id);
+            setConsultationChannel(request.channel === 'voice' ? 'call' : 'chat');
             setPastConsultation(false);
             setRoute('consultation');
           }}
+          refreshKey={refreshKey}
         />
       )}
 
@@ -367,11 +552,12 @@ function App() {
           activeTab={tab}
           onSelectTab={selectTab}
           onWithdraw={() => setRoute('withdraw')}
+          refreshKey={refreshKey}
         />
       )}
 
       {route === 'dashboard' && tab === 'alerts' && (
-        <NotificationsScreen activeTab={tab} onSelectTab={selectTab} />
+        <NotificationsScreen activeTab={tab} onSelectTab={selectTab} refreshKey={refreshKey} />
       )}
 
       {route === 'withdraw' && (
@@ -453,6 +639,7 @@ function App() {
           onSelect={(id, name) => {
             setSeeker(name);
             setChatId(id);
+            setConsultationChannel('chat');
             setPastConsultation(true);
             setHistoryOrigin('chatHistory');
             setRoute('consultation');
@@ -467,6 +654,7 @@ function App() {
           onSelect={(id, name) => {
             setSeeker(name);
             setChatId(id);
+            setConsultationChannel('call');
             setPastConsultation(true);
             setHistoryOrigin('callHistory');
             setRoute('consultation');
@@ -507,8 +695,7 @@ function App() {
           }
         }}
       />
-      </AppDataProvider>
-    </SafeAreaProvider>
+    </>
   );
 }
 

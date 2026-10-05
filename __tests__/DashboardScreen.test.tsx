@@ -225,7 +225,7 @@ test('accepting from the popup reports the request and clears the list', async (
   await act(() => {
     tree.root.findAllByType(RequestCard)[1].props.onDecline();
   });
-  expect(textOf(tree)).toContain('Voice Consultation');
+  expect(textOf(tree)).toContain('Voice Call Consultation');
 
   const second = popup().props.request;
   await act(() => {

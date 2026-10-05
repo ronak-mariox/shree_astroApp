@@ -13,7 +13,23 @@ type LeaveChatDialogProps = {
   /** "Stay" and the close mark both keep the conversation open. */
   onStay: () => void;
   onLeave: () => void;
+  /** A voice call ends rather than leaves — same dialog, same flow, worded for a call. Defaults to the chat copy. */
+  variant?: 'chat' | 'call';
 };
+
+/** The copy per consultation kind — the chat strings are the originals, byte for byte. */
+const COPY = {
+  chat: {
+    title: 'Do you want to leave this chat?',
+    body: 'Once you leave, this conversation can’t be resumed.',
+    confirm: 'Leave Chat',
+  },
+  call: {
+    title: 'Do you want to end this call?',
+    body: 'Once you end it, this call can’t be resumed.',
+    confirm: 'End Call',
+  },
+} as const;
 
 /**
  * Confirms ending a live consultation (Figma node 110:2610, over the
@@ -23,9 +39,11 @@ export function LeaveChatDialog({
   visible,
   onStay,
   onLeave,
+  variant = 'chat',
 }: LeaveChatDialogProps) {
   const { px } = useResponsive();
   const styles = useMemo(() => createStyles(px), [px]);
+  const copy = COPY[variant];
 
   return (
     <Modal
@@ -47,10 +65,8 @@ export function LeaveChatDialog({
             <CloseCircleIcon />
           </Pressable>
 
-          <Text style={styles.title}>Do you want to leave this chat?</Text>
-          <Text style={styles.body}>
-            Once you leave, this conversation can’t be resumed.
-          </Text>
+          <Text style={styles.title}>{copy.title}</Text>
+          <Text style={styles.body}>{copy.body}</Text>
 
           <View style={styles.actions}>
             <Pressable
@@ -75,7 +91,7 @@ export function LeaveChatDialog({
               ]}
             >
               <Text style={[styles.buttonLabel, styles.leaveLabel]}>
-                Leave Chat
+                {copy.confirm}
               </Text>
             </Pressable>
           </View>

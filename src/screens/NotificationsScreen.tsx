@@ -14,6 +14,8 @@ import { colors, hairline, spacing, typography } from '../theme';
 type NotificationsScreenProps = {
   activeTab?: TabKey;
   onSelectTab?: (tab: TabKey) => void;
+  /** Changes when a push notification arrives or is tapped; the feed is read again so the new one is listed. */
+  refreshKey?: number;
 };
 
 /** "2 unread", "1 unread", and nothing left to read. */
@@ -29,9 +31,10 @@ const unreadLabel = (count: number) =>
 export function NotificationsScreen({
   activeTab = 'alerts',
   onSelectTab,
+  refreshKey,
 }: NotificationsScreenProps) {
   const insets = useSafeAreaInsets();
-  const feed = useApi(() => fetchNotificationFeed(), []);
+  const feed = useApi(() => fetchNotificationFeed(), [refreshKey]);
 
   /** Rows marked read here, so the badge clears before the server answers. */
   const [readIds, setReadIds] = useState<string[]>([]);

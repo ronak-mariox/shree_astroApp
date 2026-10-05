@@ -5,6 +5,8 @@ import { TextInput } from 'react-native';
 import ReactTestRenderer from 'react-test-renderer';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
+import { AppDialogProvider } from '../src/components/AppDialogProvider';
+
 import {
   BUBBLE_WIDTH,
   ChatBubble,
@@ -44,7 +46,9 @@ const render = async (element: React.ReactElement) => {
   let tree!: ReactTestRenderer.ReactTestRenderer;
   await ReactTestRenderer.act(() => {
     tree = ReactTestRenderer.create(
-      <SafeAreaProvider initialMetrics={METRICS}>{element}</SafeAreaProvider>,
+      <SafeAreaProvider initialMetrics={METRICS}>
+        <AppDialogProvider>{element}</AppDialogProvider>
+      </SafeAreaProvider>,
     );
   });
   mounted.push(tree);

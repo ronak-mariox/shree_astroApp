@@ -82,7 +82,7 @@ export function RequestCard({
                   isChat ? styles.tagLabelChat : styles.tagLabelVoice,
                 ]}
               >
-                {isChat ? 'Chat' : 'Voice'}
+                {isChat ? 'Chat' : 'Voice call'}
               </Text>
             </View>
 
