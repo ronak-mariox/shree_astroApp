@@ -4,10 +4,12 @@
  * meter ticking, the session ending.
  *
  * One socket for the whole app. Unlike the seeker's app, it is not opened on
- * sign-in — an astrologer's presence is the manual online/offline toggle
- * (`setOnline` in `api.ts`), and the backend ties `presence.isOnline` to this
- * very socket's connect/disconnect (see backend/socket/index.js), so the
- * toggle is what opens and closes the connection. Screens never construct
+ * sign-in but by the screens that need it live: the request queue
+ * (hooks/useIncomingRequests.ts), a consultation, and the online toggle
+ * (`setOnline` in `api.ts`). Availability itself is the manual toggle alone —
+ * the backend no longer ties `presence.isOnline` to this socket (see
+ * backend/socket/index.js), so opening it never puts anyone online, and
+ * switching offline leaves it open. Screens never construct
  * their own connection; they call `getSocket()` and attach the listeners they
  * care about, and detach them on unmount — the connection itself outlives any
  * one screen.
@@ -17,7 +19,7 @@ import { io, type Socket } from 'socket.io-client';
 
 import type { PackageView } from '../utils/sessionClock';
 
-import { API_BASE_URL } from './client';
+import { API_BASE_URL, refreshOnce } from './client';
 import { getAccessToken } from './session';
 
 /** socket.io attaches to the server root, not the REST API's `/api/v1` path. */
@@ -70,38 +72,63 @@ let socket: Socket | null = null;
  * Opens the connection if one isn't already open or opening. Safe to call
  * repeatedly — a screen that needs live chat can just call this on mount
  * without worrying whether the toggle already did.
+ *
+ * A token refreshed since the connection opened is no reason to reconnect: the
+ * server never drops a live socket over its token, and dropping it on purpose
+ * would read on the seeker's side as the astrologer disconnecting (billing
+ * paused, "reconnecting…"). The next handshake picks the new token up by itself.
  */
 export function connectSocket(): Socket | null {
-  const token = getAccessToken();
-  if (!token) {
+  if (!getAccessToken()) {
     return null;
   }
 
   if (socket) {
-    if (socket.auth && (socket.auth as { token?: string }).token !== token) {
-      /** A refreshed token — reconnect so the next handshake carries it. */
-      socket.auth = { token };
-      socket.disconnect().connect();
-    } else if (!socket.connected) {
+    if (!socket.connected && !socket.active) {
       socket.connect();
     }
     return socket;
   }
 
-  socket = io(SOCKET_BASE_URL, {
-    auth: { token },
+  const current = io(SOCKET_BASE_URL, {
+    /**
+     * Read on every handshake, reconnects included. A fixed `{ token }` would
+     * replay the one the socket first opened with — access tokens live 15
+     * minutes, the socket lives all day, and the first network blip after that
+     * would be refused, pausing and then ending a live consultation.
+     */
+    auth: callback => callback({ token: getAccessToken() }),
     transports: ['websocket'],
     autoConnect: true,
     reconnection: true,
   });
+  socket = current;
 
-  socket.on('connect_error', error => {
+  current.on('connect_error', error => {
     console.warn('[socket] connect_error:', error.message);
+    /**
+     * socket.io never retries a handshake the server refused. An expired token
+     * is the server's cue to refresh first (backend/socket/index.js), then
+     * connect again with the new one.
+     */
+    const code = (error as Error & { data?: { code?: string } }).data?.code;
+    if (code !== 'token_expired' || current.active) {
+      return;
+    }
+    refreshOnce()
+      .then(() => {
+        if (socket === current && !current.connected) {
+          current.connect();
+        }
+      })
+      .catch(() => {
+        /** The refresh token is spent — the next API call signs out (client.ts). */
+      });
   });
 
-  attachIncomingRequestListeners(socket);
+  attachIncomingRequestListeners(current);
 
-  return socket;
+  return current;
 }
 
 export function getSocket(): Socket | null {
@@ -399,13 +426,14 @@ export function subscribeToChat(
 type IncomingRequestHandlers = {
   onRequested?: (payload: unknown) => void;
   onCancelled?: (payload: { chatId: string }) => void;
+  /** The request sat unanswered past its window and the server closed it (backend expireStaleRequests). */
+  onMissed?: (payload: { chatId: string }) => void;
 };
 
 /**
- * The Dashboard and Consult screens register here on mount, whether or not
- * the astrologer is online yet — registering must never itself open the
- * connection (that is the toggle's job alone, per `api.ts`'s `setOnline`).
- * Whatever is registered is wired onto the socket the moment one actually
+ * The Dashboard and Consult screens register here on mount. Registering does
+ * not itself open the connection (useIncomingRequests does that, separately);
+ * whatever is registered is wired onto the socket the moment one actually
  * opens, and stays wired across a disconnect/reconnect since this set
  * outlives any one socket instance.
  */
@@ -418,12 +446,16 @@ function attachIncomingRequestListeners(target: Socket) {
   target.on(CHAT_EVENTS.CANCELLED, (payload: { chatId: string }) => {
     incomingRequestHandlers.forEach(handlers => handlers.onCancelled?.(payload));
   });
+  target.on(CHAT_EVENTS.MISSED, (payload: { chatId: string }) => {
+    incomingRequestHandlers.forEach(handlers => handlers.onMissed?.(payload));
+  });
 }
 
 /**
  * The pre-active half of a request: the astrologer's own account room
  * (`astrologer:{id}`, auto-joined by the backend on connect) hears a new
- * request arrive, or the seeker cancel one still waiting on an answer.
+ * request arrive, the seeker cancel one still waiting on an answer, or one
+ * age out unanswered.
  */
 export function subscribeToIncomingRequests(handlers: IncomingRequestHandlers): () => void {
   incomingRequestHandlers.add(handlers);

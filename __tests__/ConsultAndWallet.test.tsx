@@ -16,6 +16,8 @@ import { TransactionRow } from '../src/components/TransactionRow';
 
 
 import { ConsultScreen } from '../src/screens/ConsultScreen';
+import * as api from '../src/services/api';
+import { fireIncomingRequest, fireRequestMissed, resetApiMock } from './helpers/apiMock';
 import { WalletScreen } from '../src/screens/WalletScreen';
 import { WithdrawMoneyScreen } from '../src/screens/WithdrawMoneyScreen';
 import { WithdrawSuccessScreen } from '../src/screens/WithdrawSuccessScreen';
@@ -127,6 +129,45 @@ test('a consult request opens its brief before it is answered', async () => {
   expect(tree.root.findAllByType(RequestCard)).toHaveLength(
     2 - 1 + MISSED_CALLS.length,
   );
+});
+
+test('a request arriving live opens its brief by itself, and its ageing out closes it', async () => {
+  resetApiMock();
+  (api.connectLiveUpdates as jest.Mock).mockClear();
+  const tree = await render(<ConsultScreen />);
+  const popup = () => tree.root.findByType(IncomingRequestPopup);
+  expect(popup().props.request).toBeNull();
+  // The queue opens the live connection itself — the toggle may have been left on since the app last ran.
+  expect(api.connectLiveUpdates).toHaveBeenCalled();
+
+  await act(async () => {
+    fireIncomingRequest({
+      chatId: 'chat-live',
+      channel: 'chat',
+      user: { id: 'u-9', name: 'Web Test User', avatarUrl: null },
+      intake: { topic: 'career-job', question: 'When will my career improve?' },
+      ratePerMinute: 32,
+      billingMode: 'per_minute',
+      expiresInSeconds: 120,
+    });
+  });
+  expect(popup().props.request.id).toBe('chat-live');
+  expect(popup().props.request.name).toBe('Web Test User');
+  expect(textOf(tree)).toContain('When will my career improve?');
+  // …and the card is on the list behind it.
+  expect(tree.root.findAllByType(RequestCard).map(card => card.props.request.id)).toContain('chat-live');
+
+  // A second request does not take the popup away from the one being read.
+  await act(async () => {
+    fireIncomingRequest({ chatId: 'chat-next', channel: 'call', user: { id: 'u-8', name: 'Another Seeker' }, intake: {}, ratePerMinute: 15 });
+  });
+  expect(popup().props.request.id).toBe('chat-live');
+
+  await act(async () => {
+    fireRequestMissed('chat-live');
+  });
+  expect(popup().props.request).toBeNull();
+  expect(tree.root.findAllByType(RequestCard).map(card => card.props.request.id)).not.toContain('chat-live');
 });
 
 test('wallet shows the balance, its three windows and every transaction', async () => {

@@ -958,10 +958,20 @@ export const sendTyping = sendTypingRaw;
 
 /**
  * The incoming-request queue's live half: a new request landing in the
- * astrologer's own account room, or the seeker cancelling one still waiting
- * on an answer. Returns the unsubscribe function.
+ * astrologer's own account room, the seeker cancelling one still waiting on
+ * an answer, or one ageing out unanswered. Returns the unsubscribe function.
  */
 export const subscribeToIncomingRequests = subscribeToIncomingRequestsRaw;
+
+/**
+ * Opens the live connection if it is not already open — what lets the request
+ * queue hear a request the moment it is made, however the app was opened
+ * (availability no longer hangs off the socket, so this never changes it).
+ */
+export function connectLiveUpdates(): void {
+  if (USE_DUMMY_CONSULT) return;
+  connectSocket();
+}
 
 /**
  * Closes the live connection at sign-out, which must never leave a socket

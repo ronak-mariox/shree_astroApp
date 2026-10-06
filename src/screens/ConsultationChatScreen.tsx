@@ -628,12 +628,19 @@ export function ConsultationChatScreen({
   const [sent, setSent] = useState<ChatMessage[]>([]);
   const stored = (transcript.data ?? []) as any[];
   const byId = new Map(stored.map(message => [String(message.id), message]));
+  /**
+   * A pending bubble's id is the clientMessageId it was sent with, which the
+   * stored copy carries too — so once a re-read has it (the live echo's re-read
+   * can land before the send's own), the pending one steps aside rather than
+   * showing twice.
+   */
+  const storedClientIds = new Set(stored.map(message => message.clientMessageId).filter(Boolean));
 
   const messages: ChatMessage[] = [
     ...stored.map(message =>
       bubbleOf(message, message.replyTo ? byId.get(String(message.replyTo)) : undefined),
     ),
-    ...sent,
+    ...sent.filter(message => !storedClientIds.has(message.id)),
   ];
 
   const [draft, setDraft] = useState('');
@@ -785,9 +792,9 @@ export function ConsultationChatScreen({
 
     try {
       await api.sendMessage(chatId, body, pending.id);
-      /** Re-read, so the bubble is the stored one from here on. */
-      setSent(current => current.filter(message => message.id !== pending.id));
+      /** Re-read first and only then drop the pending bubble, so it never blinks out in between. */
       await transcript.reload();
+      setSent(current => current.filter(message => message.id !== pending.id));
     } catch {
       /** Left on screen; the astrologer can see it did not go and retype. */
     }
