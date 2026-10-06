@@ -392,10 +392,31 @@ export const fetchSupportContact = async () => ({ email: 'support@shreeastro.com
 
 /**
  * The screens under test subscribe to these, but a screen test has no
- * business reaching a real socket — each just returns the unsubscribe
- * no-op and never fires, same as a connection that never opens.
+ * business reaching a real socket — the handlers are only held, so a test can
+ * fire a live event the way the socket would (fireIncomingRequest and friends).
  */
-export const subscribeToIncomingRequests = () => () => {};
+type IncomingRequestHandlers = {
+  onRequested?: (payload: unknown) => void;
+  onCancelled?: (payload: { chatId: string }) => void;
+  onMissed?: (payload: { chatId: string }) => void;
+};
+const incomingRequestHandlers = new Set<IncomingRequestHandlers>();
+export const subscribeToIncomingRequests = (handlers: IncomingRequestHandlers) => {
+  incomingRequestHandlers.add(handlers);
+  return () => {
+    incomingRequestHandlers.delete(handlers);
+  };
+};
+/** Test-only: a seeker's request arriving live — added to the queue first, as the server would have. */
+export const fireIncomingRequest = (request: { chatId: string } & Record<string, unknown>) => {
+  store.requests = [request as unknown as (typeof store.requests)[number], ...store.requests];
+  incomingRequestHandlers.forEach(handlers => handlers.onRequested?.(request));
+};
+/** Test-only: a waiting request aged out unanswered (chat:missed) — gone from the queue, as the server would have it. */
+export const fireRequestMissed = (chatId: string) => {
+  store.requests = store.requests.filter(request => request.chatId !== chatId);
+  incomingRequestHandlers.forEach(handlers => handlers.onMissed?.({ chatId }));
+};
 
 type ConsultationHandlers = {
   onMessage?: (message: unknown) => void;
@@ -456,6 +477,8 @@ export const fireUserReturned = (payload?: { chatId?: string; serverTime?: strin
     chatId: payload?.chatId ?? 'chat-1',
     serverTime: payload?.serverTime ?? new Date().toISOString(),
   });
+/** Test-only: a message arriving over the socket (message:new) — the sender's own echo included. */
+export const fireMessage = (message: unknown) => consultationHandlers?.onMessage?.(message);
 /** Test-only: what a (re)join reports about the session's true current state. */
 export const fireRejoinState = (payload: Record<string, unknown>) =>
   consultationHandlers?.onRejoinState?.({ status: 'active', paused: false, pausedSince: null, ...payload });
@@ -465,7 +488,8 @@ export const firePackageEnded = (payload: Record<string, unknown>) => consultati
 export const firePackageExtended = (payload: Record<string, unknown>) => consultationHandlers?.onPackageExtended?.(payload);
 /** Test-only: package bookings — the seeker continued per-minute. */
 export const firePerMinuteStarted = (payload: Record<string, unknown>) => consultationHandlers?.onPerMinuteStarted?.(payload);
-export const connectLiveUpdates = () => null;
+/** The request queue opens the live connection itself; a test reads the calls. */
+export const connectLiveUpdates = jest.fn();
 export const disconnectLiveUpdates = () => {};
 /** Only the missed list is asked for by a screen; everything else is empty. */
 export const fetchConsultations = async (status?: string) =>
@@ -527,18 +551,20 @@ export const fetchMessages = async () => [
   ...posted,
 ];
 
-export const sendMessage = async (_chatId: string, text: string) => {
+/** Stored with the clientMessageId it was sent with, as the server stores it — a jest.fn so a test can hold the ack back. */
+export const sendMessage = jest.fn(async (_chatId: string, text: string, clientMessageId?: string) => {
   const message = {
-    id: `sent-${posted.length + 1}`,
+    id: `msg-${posted.length + 1}`,
     senderRole: 'astrologer',
     type: 'text',
     content: { text },
     seq: CHAT_TRANSCRIPT.length + posted.length + 1,
+    clientMessageId,
     createdAt: new Date().toISOString(),
   };
   posted = [...posted, message];
   return message;
-};
+});
 
 export const fetchEarnings = async () => ({
   balance: 18520,

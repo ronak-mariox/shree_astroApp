@@ -1,5 +1,5 @@
 import { CHAT_TRANSCRIPT } from './helpers/fixtures';
-import { fireLowBalance, fireRejoinState, fireTick, fireUserLeft, fireUserReturned } from './helpers/apiMock';
+import { fireLowBalance, fireMessage, fireRejoinState, fireTick, fireUserLeft, fireUserReturned } from './helpers/apiMock';
 import React from 'react';
 import { TextInput } from 'react-native';
 import ReactTestRenderer from 'react-test-renderer';
@@ -244,6 +244,47 @@ test('sending appends the message and empties the draft', async () => {
   );
   expect(textOf(tree)).toContain('Namaste');
   expect(composer().props.value).toBe('');
+});
+
+test('a sent message shows once while its live echo races the send', async () => {
+  const tree = await render(<ConsultationChatScreen chatId="chat-1" peerName="Astro Rakesh" />);
+  const composer = () => tree.root.findByType(ChatComposer);
+  const bubblesSaying = (text: string) =>
+    tree.root.findAllByType(ChatBubble).filter(bubble => bubble.props.message.lines.join(' ') === text);
+
+  /** Stored straight away (as the server does), but the ack is held back — the room's message:new gets here first. */
+  const send = api.sendMessage as unknown as jest.Mock;
+  const store = send.getMockImplementation()!;
+  let ack!: () => void;
+  let stored: any;
+  send.mockImplementationOnce(async (...args: unknown[]) => {
+    stored = await store(...args);
+    await new Promise<void>(resolve => {
+      ack = resolve;
+    });
+    return stored;
+  });
+
+  const before = tree.root.findAllByType(ChatBubble).length;
+  await act(() => {
+    composer().findByType(TextInput).props.onChangeText('Shani ki dasha 🌙');
+  });
+  await act(async () => {
+    composer().props.onSend();
+  });
+  expect(bubblesSaying('Shani ki dasha 🌙')).toHaveLength(1);
+
+  // The echo of our own message: the screen re-reads, and the stored copy now carries the pending bubble's clientMessageId.
+  await act(async () => {
+    fireMessage(stored);
+  });
+  expect(bubblesSaying('Shani ki dasha 🌙')).toHaveLength(1);
+
+  await act(async () => {
+    ack();
+  });
+  expect(bubblesSaying('Shani ki dasha 🌙')).toHaveLength(1);
+  expect(tree.root.findAllByType(ChatBubble)).toHaveLength(before + 1);
 });
 
 test('the cross asks before leaving, and Stay keeps the chat', async () => {

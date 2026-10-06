@@ -16,6 +16,7 @@ import { useEffect, useState } from 'react';
 import { useApi } from './useApi';
 import type { ConsultationRequest } from '../components/RequestCard';
 import * as api from '../services/api';
+import type { IncomingRequest } from '../services/api';
 import { requestsFromApi } from '../utils/requests';
 
 export function useIncomingRequests(options: {
@@ -34,21 +35,34 @@ export function useIncomingRequests(options: {
   const queue = useApi(() => api.fetchRequests(), [refreshKey]);
   const [reviewing, setReviewing] = useState<ConsultationRequest | null>(null);
 
-  useEffect(
-    () =>
-      api.subscribeToIncomingRequests({
-        onRequested: () => {
-          queue.reload();
-        },
-        onCancelled: payload => {
-          setReviewing(current => (current?.id === payload.chatId ? null : current));
-          queue.reload();
-        },
-      }),
+  useEffect(() => {
+    /** A request withdrawn or aged out closes its popup — answering it now would only be refused. */
+    const closeIfReviewing = (payload: { chatId: string }) => {
+      setReviewing(current => (current?.id === payload.chatId ? null : current));
+      queue.reload();
+    };
+    const unsubscribe = api.subscribeToIncomingRequests({
+      onRequested: payload => {
+        /** Straight into the review popup — unless one is already open, which keeps the astrologer's place. */
+        const [request] = requestsFromApi([payload as IncomingRequest]);
+        if (request) {
+          setReviewing(current => current ?? request);
+        }
+        queue.reload();
+      },
+      onCancelled: closeIfReviewing,
+      onMissed: closeIfReviewing,
+    });
+    /**
+     * Opened here, not only by the online toggle: the toggle survives the app
+     * closing, so an astrologer who reopens it already Online would otherwise
+     * have no live connection until they flipped the switch twice.
+     */
+    api.connectLiveUpdates();
+    return unsubscribe;
     // queue.reload is a fresh closure every render; the subscription itself only needs to open once.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [],
-  );
+  }, []);
 
   const requests = requestsFromApi(queue.data ?? []);
 

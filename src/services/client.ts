@@ -221,8 +221,8 @@ async function refreshAccessToken(): Promise<string> {
   return data.accessToken;
 }
 
-/** One refresh at a time; everybody waits on the same one. */
-function refreshOnce(): Promise<string> {
+/** One refresh at a time; everybody waits on the same one — the socket's refused handshake (socket.ts) included. */
+export function refreshOnce(): Promise<string> {
   refreshing =
     refreshing ??
     refreshAccessToken().finally(() => {
